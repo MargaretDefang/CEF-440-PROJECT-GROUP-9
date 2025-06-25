@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "979290808822",
+    "project_id": "roadbro-c4782",
+    "storage_bucket": "roadbro-c4782.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:979290808822:android:42382851afafd34e07a7d7",
+        "android_client_info": {
+          "package_name": "com.company.Roadbro"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyALlDlNghLjj3j8_ZyZvd-ZSDL74TmPYrw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

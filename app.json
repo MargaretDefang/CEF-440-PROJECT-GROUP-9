@@ -1,0 +1,72 @@
+{
+  "expo": {
+    "name": "RoadBro",
+    "slug": "RoadBro",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "assets/images/icon.png",
+    "scheme": "roadbro",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "android": {
+      "googleServicesFile": "./lib/google-services.json",
+      "adaptiveIcon": {
+        "foregroundImage": "assets/images/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.company.Roadbro",
+      "edgeToEdgeEnabled": true
+    },
+    "ios": {
+      "googleServicesFile": "./lib/GoogleService-Info.plist",
+      "supportsTablet": true,
+      "package": "com.company.Roadbro",
+      "bundleIdentifier": "com.company.Roadbro"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static"
+          }
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff"
+        }
+      ],
+      "@react-native-firebase/app",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Road Bro to access your photos to attach to reports.",
+          "cameraPermission": "Allow Road Bro to access your camera to take photos of road issues."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUseDescription": "Allow Road Bro to access your location to report road issues accurately."
+        }
+      ],
+      "@react-native-firebase/auth",
+      "@react-native-firebase/crashlytics",
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

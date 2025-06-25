@@ -1,0 +1,2 @@
+# This file ensures the uploads/avatars directory is preserved in git
+# while uploaded files are ignored via .gitignore 
