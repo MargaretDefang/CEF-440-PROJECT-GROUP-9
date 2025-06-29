@@ -346,6 +346,68 @@ export class ApiService {
     });
   }
 
+  // Road State Notifications methods
+  async getRoadStateNotifications(page = 1, limit = 20, type?: string, severity?: string) {
+    const params = new URLSearchParams({
+      page: page.toString(),
+      limit: limit.toString(),
+    });
+
+    if (type) params.append('type', type);
+    if (severity) params.append('severity', severity);
+
+    return await this.makeRequest(`/api/road-state-notifications?${params}`);
+  }
+
+  async getProximityNotifications(latitude: number, longitude: number, radius = 10) {
+    const params = new URLSearchParams({
+      latitude: latitude.toString(),
+      longitude: longitude.toString(),
+      radius: radius.toString(),
+    });
+
+    return await this.makeRequest(`/api/road-state-notifications/proximity?${params}`);
+  }
+
+  async createRoadStateNotification(notificationData: any) {
+    return await this.makeRequest('/api/road-state-notifications', {
+      method: 'POST',
+      body: JSON.stringify(notificationData),
+    });
+  }
+
+  async updateRoadStateNotification(id: number, notificationData: any) {
+    return await this.makeRequest(`/api/road-state-notifications/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(notificationData),
+    });
+  }
+
+  async deleteRoadStateNotification(id: number) {
+    return await this.makeRequest(`/api/road-state-notifications/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getRoadStateNotificationStats() {
+    return await this.makeRequest('/api/road-state-notifications/stats');
+  }
+
+  // User notification preferences
+  async updateNotificationPreferences(preferences: any) {
+    return await this.makeRequest('/api/users/notification-preferences', {
+      method: 'PUT',
+      body: JSON.stringify({ preferences }),
+    });
+  }
+
+  async updatePushToken(pushToken: string) {
+    return await this.makeRequest('/api/users/push-token', {
+      method: 'PUT',
+      body: JSON.stringify({ push_token: pushToken }),
+    });
+  }
+
   // Road signs methods
   async loadSignCategories() {
     try {
@@ -489,46 +551,86 @@ export class ApiService {
   }
 
   async uploadSignImage(imageUri: string) {
-    // Ensure token is loaded
-    await this.loadToken();
-    
-    const formData = new FormData();
-    // Extract filename and type
-    const filename = imageUri.split('/').pop() || `sign.jpg`;
-    const match = /\.([a-zA-Z0-9]+)$/.exec(filename);
-    const type = match ? `image/${match[1]}` : `image`;
-    formData.append('image', {
-      uri: imageUri,
-      name: filename,
-      type,
-    } as any);
-
-    const url = `${API_BASE_URL}/api/signs/upload`;
-    const headers: any = {
-      'Authorization': this.token ? `Bearer ${this.token}` : '',
-      // Remove Content-Type - let fetch set it automatically for FormData
-    };
-    
-    console.log('UploadSignImage - Token:', this.token ? 'Token exists' : 'No token');
-    console.log('UploadSignImage - Headers:', headers);
-    
     try {
+      const formData = new FormData();
+      
+      // Create file object from URI
+      const filename = imageUri.split('/').pop() || 'image.jpg';
+      const match = /\.(\w+)$/.exec(filename);
+      const type = match ? `image/${match[1]}` : 'image/jpeg';
+      
+      formData.append('image', {
+        uri: imageUri,
+        name: filename,
+        type,
+      } as any);
+
+      const response = await fetch(`${API_BASE_URL}/api/admin/upload-sign-image`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${await this.loadToken()}`,
+          'Content-Type': 'multipart/form-data',
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Upload failed: ${response.status}`);
+      }
+
+      const result = await response.json();
+      return result;
+    } catch (error) {
+      console.error('Image upload error:', error);
+      throw error;
+    }
+  }
+
+  async uploadReportImage(imageUri: string) {
+    try {
+      // Ensure token is loaded
+      await this.loadToken();
+      
+      const formData = new FormData();
+      // Extract filename and type
+      const filename = imageUri.split('/').pop() || `report_${Date.now()}.jpg`;
+      const match = /\.([a-zA-Z0-9]+)$/.exec(filename);
+      const type = match ? `image/${match[1]}` : `image`;
+      
+      formData.append('image', {
+        uri: imageUri,
+        name: filename,
+        type,
+      } as any);
+
+      const url = `${API_BASE_URL}/api/reports/upload-image`;
+      const headers: any = {
+        'Authorization': this.token ? `Bearer ${this.token}` : '',
+        // Remove Content-Type - let fetch set it automatically for FormData
+      };
+      
+      console.log('UploadReportImage - Token:', this.token ? 'Token exists' : 'No token');
+      console.log('UploadReportImage - Headers:', headers);
+      
       const response = await fetch(url, {
         method: 'POST',
         headers,
         body: formData,
       });
       
-      console.log('UploadSignImage - Response status:', response.status);
+      console.log('UploadReportImage - Response status:', response.status);
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        console.log('UploadSignImage - Error data:', errorData);
+        console.log('UploadReportImage - Error data:', errorData);
         throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
       }
-      return await response.json();
+      
+      const result = await response.json();
+      console.log('UploadReportImage - Success result:', result);
+      return result;
     } catch (error) {
-      console.error('Sign image upload failed:', error);
+      console.error('Report image upload failed:', error);
       throw error;
     }
   }

@@ -87,9 +87,12 @@ const auth = (req, res, next) => {
 // Admin authentication middleware
 const adminAuth = (req, res, next) => {
   try {
+    console.log('Admin auth middleware called');
     const authHeader = req.header('Authorization');
+    console.log('Auth header:', authHeader ? 'Present' : 'Missing');
     
     if (!authHeader) {
+      console.log('No authorization header provided');
       return res.status(401).json({ 
         message: 'No authorization header provided',
         code: 'NO_AUTH_HEADER'
@@ -97,6 +100,7 @@ const adminAuth = (req, res, next) => {
     }
 
     if (!authHeader.startsWith('Bearer ')) {
+      console.log('Invalid authorization format');
       return res.status(401).json({ 
         message: 'Invalid authorization format. Use Bearer token',
         code: 'INVALID_AUTH_FORMAT'
@@ -104,24 +108,30 @@ const adminAuth = (req, res, next) => {
     }
 
     const token = authHeader.replace('Bearer ', '');
+    console.log('Token extracted:', token ? 'Present' : 'Missing');
     
     if (!token) {
+      console.log('No token provided');
       return res.status(401).json({ 
         message: 'No token provided',
         code: 'NO_TOKEN'
       });
     }
 
+    console.log('Attempting to verify token...');
     const decoded = verifyToken(token);
+    console.log('Token decoded successfully:', decoded);
     
     // Check if user is admin
     if (decoded.user?.user_type !== 'admin' && decoded.user_type !== 'admin') {
+      console.log('User is not admin:', decoded.user?.user_type || decoded.user_type);
       return res.status(403).json({ 
         message: 'Admin access required',
         code: 'ADMIN_REQUIRED'
       });
     }
     
+    console.log('Admin access granted');
     // Add user info to request
     req.user = decoded;
     req.token = token;
@@ -129,6 +139,7 @@ const adminAuth = (req, res, next) => {
     next();
   } catch (error) {
     console.error('Admin auth middleware error:', error.message);
+    console.error('Error details:', error);
     
     if (error.name === 'TokenExpiredError') {
       return res.status(401).json({ 

@@ -11,6 +11,9 @@ CREATE TABLE IF NOT EXISTS users (
     user_type VARCHAR(20) DEFAULT 'user' CHECK (user_type IN ('user', 'admin', 'moderator')),
     status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'suspended', 'pending')),
     avatar_url VARCHAR(255),
+    push_token VARCHAR(255), -- For Expo push notifications
+    notification_preferences JSONB DEFAULT '{"road_signs": true, "road_state": true, "reports": true, "proximity_radius": 10}', -- User notification preferences
+    last_login TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

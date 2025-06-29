@@ -2,8 +2,50 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { auth, adminAuth } = require('../middleware/auth');
 const pool = require('../config/database');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 
 const router = express.Router();
+
+// Get NotificationService instance
+let notificationService = null;
+const setNotificationService = (service) => {
+  notificationService = service;
+};
+
+// Configure multer for image uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = path.join(__dirname, '../uploads/reports');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, 'report_' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = /jpeg|jpg|png|gif/;
+    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = allowedTypes.test(file.mimetype);
+    
+    if (mimetype && extname) {
+      return cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed!'));
+    }
+  }
+});
 
 // Get all reports (with pagination)
 router.get('/', auth, async (req, res) => {
@@ -194,11 +236,24 @@ router.put('/:id', [
 
     // Create notification for user
     if (status && status !== report.rows[0].status) {
+      // Notify the report owner about status change
       await pool.query(
         `INSERT INTO notifications (user_id, title, message, type, related_report_id) 
          VALUES ($1, 'Report Update', 'Your report status has been updated to ${status}', 'status_update', $2)`,
         [report.rows[0].user_id, id]
       );
+
+      // If report is approved, notify all other users via NotificationService
+      if (status === 'approved' && notificationService) {
+        try {
+          const reportData = report.rows[0];
+          await notificationService.sendApprovedReportNotification(reportData);
+          console.log(`Real-time notification sent to all users for approved report ${id}: ${reportData.title}`);
+        } catch (error) {
+          console.error('Error sending approved report notification:', error);
+          // Continue with the response even if notification fails
+        }
+      }
     }
 
     res.json(updatedReport.rows[0]);
@@ -257,4 +312,24 @@ router.get('/user/me', auth, async (req, res) => {
   }
 });
 
-module.exports = router; 
+// Upload report image
+router.post('/upload-image', auth, upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'No image file provided' });
+    }
+
+    const imageUrl = `/uploads/reports/${req.file.filename}`;
+    
+    res.json({
+      message: 'Image uploaded successfully',
+      imageUrl: imageUrl,
+      filename: req.file.filename
+    });
+  } catch (error) {
+    console.error('Upload report image error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+module.exports = { router, setNotificationService }; 

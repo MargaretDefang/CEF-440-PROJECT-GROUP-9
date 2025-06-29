@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { Alert } from 'react-native';
 import { ApiService } from '../services/ApiService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // User interface
 export interface User {
@@ -117,6 +118,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setUser(response.user);
         console.log('Login successful:', response.user.email);
         console.log('User type set to:', response.user.user_type);
+        
+        // Trigger Socket.IO connection after successful login
+        setTimeout(async () => {
+          console.log('Triggering Socket.IO connection after login...');
+          // Ensure token is stored before connecting
+          const token = await AsyncStorage.getItem('authToken');
+          console.log('Token check before Socket.IO connection:', token ? 'Found' : 'Not found');
+          
+          // Call the global Socket.IO connection function
+          if ((global as any).triggerSocketConnection) {
+            (global as any).triggerSocketConnection();
+          }
+        }, 2000); // Increased delay to 2 seconds
+        
         return true;
       } else {
         setError('Invalid response from server');
@@ -158,6 +173,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (response.user && response.token) {
         setUser(response.user);
         console.log('Registration successful:', response.user.email);
+        
+        // Trigger Socket.IO connection after successful registration
+        setTimeout(async () => {
+          console.log('Triggering Socket.IO connection after registration...');
+          // Ensure token is stored before connecting
+          const token = await AsyncStorage.getItem('auth_token');
+          console.log('Token check before Socket.IO connection:', token ? 'Found' : 'Not found');
+          
+          if ((global as any).triggerSocketConnection) {
+            (global as any).triggerSocketConnection();
+          }
+        }, 2000); // Increased delay to 2 seconds
+        
         return true;
       } else {
         setError('Invalid response from server');
@@ -192,6 +220,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setUser(null);
       setError(null);
       console.log('Logout successful');
+      
+      // Disconnect Socket.IO on logout
+      setTimeout(() => {
+        console.log('Disconnecting Socket.IO after logout...');
+        if ((global as any).triggerSocketDisconnection) {
+          (global as any).triggerSocketDisconnection();
+        }
+      }, 500);
     } catch (error) {
       console.error('Logout error:', error);
       // Even if logout fails, clear local state

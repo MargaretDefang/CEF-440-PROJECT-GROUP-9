@@ -22,6 +22,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Animatable from 'react-native-animatable';
 import { ApiService, API_BASE_URL } from '../services/ApiService';
 import * as ImagePicker from 'expo-image-picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const apiService = new ApiService();
 
@@ -732,6 +733,54 @@ export default function AdminDashboard() {
     </View>
   );
 
+  const handleTestNotification = async () => {
+    await handleAction(async () => {
+      const response = await fetch(`${API_BASE_URL}/api/admin/test-notification`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await AsyncStorage.getItem('authToken')}`
+        },
+        body: JSON.stringify({
+          title: 'Test Road Sign Notification',
+          description: 'This is a test notification for road signs and road state updates.',
+          type: 'road_sign',
+          severity: 'medium'
+        }),
+      });
+      
+      const data = await response.json();
+      Alert.alert('Success', `Test notification sent to ${data.sent_to_users} users!`);
+    }, 'send test notification');
+  };
+
+  const handleGetConnectedUsers = async () => {
+    await handleAction(async () => {
+      const response = await fetch(`${API_BASE_URL}/api/admin/connected-users`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${await AsyncStorage.getItem('authToken')}`
+        },
+      });
+      
+      const data = await response.json();
+      Alert.alert(
+        'Connected Users', 
+        `Currently ${data.connected_users} users are connected to receive real-time notifications.`
+      );
+    }, 'get connected users');
+  };
+
+  const handleDebugConnection = () => {
+    // Simple debug without hooks
+    console.log('=== Admin Dashboard Debug ===');
+    console.log('API Base URL:', API_BASE_URL);
+    console.log('WebSocket URL:', API_BASE_URL.replace('http://', 'ws://'));
+    console.log('Current user:', userStats);
+    console.log('============================');
+    Alert.alert('Debug Info', 'Check console logs for connection debug information');
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" backgroundColor="#667eea" />
@@ -1378,6 +1427,54 @@ export default function AdminDashboard() {
             end={{ x: 1, y: 1 }}
           >
             <MaterialIcons name="add" size={28} color="white" />
+          </LinearGradient>
+        </TouchableOpacity>
+
+        {/* Test Notification Button */}
+        <TouchableOpacity
+          style={[styles.fab, styles.testFab]}
+          onPress={handleTestNotification}
+          activeOpacity={0.8}
+        >
+          <LinearGradient
+            colors={['#1dd1a1', '#10ac84']}
+            style={styles.fabGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          >
+            <MaterialIcons name="notifications" size={24} color="white" />
+          </LinearGradient>
+        </TouchableOpacity>
+
+        {/* Connected Users Button */}
+        <TouchableOpacity
+          style={[styles.fab, styles.usersFab]}
+          onPress={handleGetConnectedUsers}
+          activeOpacity={0.8}
+        >
+          <LinearGradient
+            colors={['#feca57', '#ff9ff3']}
+            style={styles.fabGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          >
+            <MaterialIcons name="people" size={24} color="white" />
+          </LinearGradient>
+        </TouchableOpacity>
+
+        {/* Debug Connection Button */}
+        <TouchableOpacity
+          style={[styles.fab, styles.debugFab]}
+          onPress={handleDebugConnection}
+          activeOpacity={0.8}
+        >
+          <LinearGradient
+            colors={['#6c5ce7', '#a29bfe']}
+            style={styles.fabGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          >
+            <MaterialIcons name="bug-report" size={24} color="white" />
           </LinearGradient>
         </TouchableOpacity>
       </LinearGradient>
@@ -2077,5 +2174,17 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  testFab: {
+    bottom: 100,
+    right: 20,
+  },
+  usersFab: {
+    bottom: 170,
+    right: 20,
+  },
+  debugFab: {
+    bottom: 240,
+    right: 20,
   },
 });

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   StyleSheet, 
   View, 
@@ -13,25 +13,33 @@ import {
   Modal,
   FlatList,
   TextInput,
-  Switch
+  Switch,
+  RefreshControl
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Animatable from 'react-native-animatable';
+import { ApiService } from '../services/ApiService';
 
 // Interfaces
 interface Report {
-  id: string;
-  type: string;
+  id: number;
+  title: string;
   description: string;
-  location: string;
+  report_type: string;
   status: 'pending' | 'approved' | 'rejected';
-  reportedBy: string;
-  dateReported: string;
-  priority: 'low' | 'medium' | 'high';
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  latitude: number;
+  longitude: number;
+  address?: string;
+  user_id: number;
+  first_name: string;
+  last_name: string;
+  email: string;
+  created_at: string;
+  updated_at: string;
   images?: string[];
-  coordinates?: { latitude: number; longitude: number };
 }
 
 interface GroupedReports {
@@ -39,10 +47,13 @@ interface GroupedReports {
 }
 
 const { width, height } = Dimensions.get('window');
+const apiService = new ApiService();
 
 export default function ReportsScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [groupBy, setGroupBy] = useState<'none' | 'location' | 'type' | 'status' | 'priority'>('none');
   const [sortBy, setSortBy] = useState<'date' | 'priority' | 'status'>('date');
   const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
@@ -51,100 +62,144 @@ export default function ReportsScreen() {
   const [filtersVisible, setFiltersVisible] = useState(false);
   const [reportDetailsVisible, setReportDetailsVisible] = useState(false);
   const [bulkSelectMode, setBulkSelectMode] = useState(false);
-  const [selectedReports, setSelectedReports] = useState<string[]>([]);
+  const [selectedReports, setSelectedReports] = useState<number[]>([]);
   
-  // Mock reports data (expanded)
-  const [reports, setReports] = useState<Report[]>([
-    {
-      id: '1',
-      type: 'Missing Sign',
-      description: 'Stop sign missing at intersection of Main St and Oak Ave. Very dangerous intersection with heavy traffic.',
-      location: 'Main St & Oak Ave',
-      status: 'pending',
-      reportedBy: 'John Doe',
-      dateReported: '2025-06-20',
-      priority: 'high',
-      coordinates: { latitude: 40.7128, longitude: -74.0060 },
-      images: ['stop_sign_missing.jpg']
-    },
-    {
-      id: '2',
-      type: 'Damaged Sign',
-      description: 'Speed limit sign is faded and barely readable due to weather damage.',
-      location: 'Highway 101, Mile 45',
-      status: 'approved',
-      reportedBy: 'Jane Smith',
-      dateReported: '2025-06-19',
-      priority: 'medium',
-      coordinates: { latitude: 40.7589, longitude: -73.9851 }
-    },
-    {
-      id: '3',
-      type: 'Incorrect Sign',
-      description: 'Wrong speed limit posted - should be 35 mph not 25 mph according to city ordinance.',
-      location: 'School District Road',
-      status: 'pending',
-      reportedBy: 'Mike Johnson',
-      dateReported: '2025-06-18',
-      priority: 'low',
-      coordinates: { latitude: 40.7831, longitude: -73.9712 }
-    },
-    {
-      id: '4',
-      type: 'New Sign Request',
-      description: 'Need pedestrian crossing sign near new shopping center. High foot traffic area.',
-      location: 'Commerce Blvd',
-      status: 'rejected',
-      reportedBy: 'Sarah Wilson',
-      dateReported: '2025-06-17',
-      priority: 'medium',
-      coordinates: { latitude: 40.7505, longitude: -73.9934 }
-    },
-    {
-      id: '5',
-      type: 'Vandalized Sign',
-      description: 'Graffiti on yield sign, needs cleaning or replacement. Affects visibility.',
-      location: 'Park Street',
-      status: 'approved',
-      reportedBy: 'Robert Brown',
-      dateReported: '2025-06-16',
-      priority: 'high',
-      coordinates: { latitude: 40.7614, longitude: -73.9776 }
-    },
-    {
-      id: '6',
-      type: 'Missing Sign',
-      description: 'No parking sign removed, causing parking violations.',
-      location: 'Main St & Oak Ave',
-      status: 'pending',
-      reportedBy: 'Emily Davis',
-      dateReported: '2025-06-15',
-      priority: 'medium',
-      coordinates: { latitude: 40.7128, longitude: -74.0060 }
-    },
-    {
-      id: '7',
-      type: 'Damaged Sign',
-      description: 'Construction sign knocked over by vehicle, blocking visibility.',
-      location: 'Construction Zone A',
-      status: 'pending',
-      reportedBy: 'Tom Wilson',
-      dateReported: '2025-06-14',
-      priority: 'high',
-      coordinates: { latitude: 40.7282, longitude: -73.7949 }
-    },
-    {
-      id: '8',
-      type: 'New Sign Request',
-      description: 'School zone sign needed for new elementary school opening.',
-      location: 'Education District',
-      status: 'pending',
-      reportedBy: 'Lisa Chen',
-      dateReported: '2025-06-13',
-      priority: 'high',
-      coordinates: { latitude: 40.7489, longitude: -73.9680 }
+  // Real reports data from API
+  const [reports, setReports] = useState<Report[]>([]);
+  const [pagination, setPagination] = useState({
+    current_page: 1,
+    total_pages: 1,
+    total_items: 0,
+    items_per_page: 10
+  });
+
+  // Load reports from API
+  const loadReports = async (page = 1, refresh = false) => {
+    try {
+      if (refresh) {
+        setRefreshing(true);
+      } else if (page === 1) {
+        setInitialLoading(true);
+      }
+
+      const filters: any = {};
+      if (filterStatus !== 'all') {
+        filters.status = filterStatus;
+      }
+
+      const response = await apiService.getReports(page, 20, filters);
+      const newReports = response.reports || [];
+      
+      if (page === 1 || refresh) {
+        setReports(newReports);
+      } else {
+        setReports(prev => [...prev, ...newReports]);
+      }
+      
+      setPagination(response.pagination || {
+        current_page: page,
+        total_pages: 1,
+        total_items: newReports.length,
+        items_per_page: 20
+      });
+    } catch (error) {
+      console.error('Error loading reports:', error);
+      Alert.alert('Error', 'Failed to load reports. Please try again.');
+    } finally {
+      setInitialLoading(false);
+      setRefreshing(false);
     }
-  ]);
+  };
+
+  // Initialize data
+  useEffect(() => {
+    loadReports(1);
+  }, [filterStatus]);
+
+  // Refresh data
+  const onRefresh = () => {
+    loadReports(1, true);
+  };
+
+  // Handle report actions
+  const handleReportAction = async (reportId: number, action: 'approve' | 'reject') => {
+    try {
+      setLoading(true);
+      await apiService.updateReport(reportId, { status: action === 'approve' ? 'approved' : 'rejected' });
+      
+      // Update local state
+      setReports(prev => prev.map(report => 
+        report.id === reportId 
+          ? { ...report, status: action === 'approve' ? 'approved' : 'rejected' }
+          : report
+      ));
+      
+      Alert.alert(
+        'Success', 
+        `Report ${action === 'approve' ? 'approved' : 'rejected'} successfully!`
+      );
+    } catch (error) {
+      console.error('Error updating report:', error);
+      Alert.alert('Error', 'Failed to update report. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Bulk actions
+  const handleBulkAction = async (action: 'approve' | 'reject') => {
+    if (selectedReports.length === 0) {
+      Alert.alert('No Reports Selected', 'Please select reports to perform bulk actions.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      
+      // Update all selected reports
+      await Promise.all(
+        selectedReports.map(reportId => 
+          apiService.updateReport(reportId, { 
+            status: action === 'approve' ? 'approved' : 'rejected' 
+          })
+        )
+      );
+      
+      // Update local state
+      setReports(prev => prev.map(report => 
+        selectedReports.includes(report.id)
+          ? { ...report, status: action === 'approve' ? 'approved' : 'rejected' }
+          : report
+      ));
+      
+      // Clear selection
+      setSelectedReports([]);
+      setBulkSelectMode(false);
+      
+      Alert.alert(
+        'Success', 
+        `${selectedReports.length} reports ${action === 'approve' ? 'approved' : 'rejected'} successfully!`
+      );
+    } catch (error) {
+      console.error('Error performing bulk action:', error);
+      Alert.alert('Error', 'Failed to perform bulk action. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleReportSelection = (reportId: number) => {
+    setSelectedReports(prev => 
+      prev.includes(reportId)
+        ? prev.filter(id => id !== reportId)
+        : [...prev, reportId]
+    );
+  };
+
+  const toggleBulkSelectMode = () => {
+    setBulkSelectMode(!bulkSelectMode);
+    setSelectedReports([]);
+  };
 
   // Group reports function
   const getGroupedReports = (): { [key: string]: Report[] } => {
@@ -159,10 +214,10 @@ export default function ReportsScreen() {
       
       switch (groupBy) {
         case 'location':
-          key = report.location;
+          key = report.address || '';
           break;
         case 'type':
-          key = report.type;
+          key = report.report_type;
           break;
         case 'status':
           key = report.status.charAt(0).toUpperCase() + report.status.slice(1);
@@ -196,9 +251,10 @@ export default function ReportsScreen() {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(report => 
         report.description.toLowerCase().includes(query) ||
-        report.location.toLowerCase().includes(query) ||
-        report.type.toLowerCase().includes(query) ||
-        report.reportedBy.toLowerCase().includes(query)
+        report.address?.toLowerCase().includes(query) ||
+        report.report_type.toLowerCase().includes(query) ||
+        report.first_name.toLowerCase().includes(query) ||
+        report.last_name.toLowerCase().includes(query)
       );
     }
     
@@ -206,9 +262,9 @@ export default function ReportsScreen() {
     filtered.sort((a, b) => {
       switch (sortBy) {
         case 'date':
-          return new Date(b.dateReported).getTime() - new Date(a.dateReported).getTime();
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
         case 'priority':
-          const priorityOrder = { high: 3, medium: 2, low: 1 };
+          const priorityOrder = { high: 3, medium: 2, low: 1, urgent: 4 };
           return priorityOrder[b.priority] - priorityOrder[a.priority];
         case 'status':
           return a.status.localeCompare(b.status);
@@ -218,58 +274,6 @@ export default function ReportsScreen() {
     });
     
     return filtered;
-  };
-
-  // Handle report actions
-  const handleReportAction = (reportId: string, action: 'approve' | 'reject') => {
-    setReports(prev => prev.map(report => 
-      report.id === reportId 
-        ? { ...report, status: action === 'approve' ? 'approved' : 'rejected' }
-        : report
-    ));
-    
-    Alert.alert(
-      'Success', 
-      `Report ${action === 'approve' ? 'approved' : 'rejected'} successfully!`
-    );
-  };
-
-  // Bulk actions
-  const handleBulkAction = (action: 'approve' | 'reject') => {
-    if (selectedReports.length === 0) {
-      Alert.alert('Error', 'Please select reports first');
-      return;
-    }
-    
-    Alert.alert(
-      'Confirm Bulk Action',
-      `Are you sure you want to ${action} ${selectedReports.length} report(s)?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Confirm',
-          onPress: () => {
-            setReports(prev => prev.map(report => 
-              selectedReports.includes(report.id)
-                ? { ...report, status: action === 'approve' ? 'approved' : 'rejected' }
-                : report
-            ));
-            setSelectedReports([]);
-            setBulkSelectMode(false);
-            Alert.alert('Success', `${selectedReports.length} report(s) ${action}d successfully!`);
-          }
-        }
-      ]
-    );
-  };
-
-  // Toggle report selection
-  const toggleReportSelection = (reportId: string) => {
-    setSelectedReports(prev => 
-      prev.includes(reportId)
-        ? prev.filter(id => id !== reportId)
-        : [...prev, reportId]
-    );
   };
 
   // Utility functions
@@ -287,6 +291,7 @@ export default function ReportsScreen() {
       case 'high': return '#ff6b6b';
       case 'medium': return '#feca57';
       case 'low': return '#48dbfb';
+      case 'urgent': return '#ff6b6b';
       default: return '#999';
     }
   };
@@ -296,6 +301,7 @@ export default function ReportsScreen() {
       case 'high': return 'priority-high';
       case 'medium': return 'remove';
       case 'low': return 'expand-more';
+      case 'urgent': return 'priority-high';
       default: return 'remove';
     }
   };
@@ -349,7 +355,7 @@ export default function ReportsScreen() {
         
         <View style={styles.reportIcon}>
           <MaterialIcons 
-            name={getTypeIcon(report.type)} 
+            name={getTypeIcon(report.report_type)} 
             size={24} 
             color={getPriorityColor(report.priority)} 
           />
@@ -358,7 +364,7 @@ export default function ReportsScreen() {
         <View style={styles.reportDetails}>
           <View style={styles.reportHeader}>
             <View style={styles.reportTitleContainer}>
-              <Text style={styles.reportType} numberOfLines={1}>{report.type}</Text>
+              <Text style={styles.reportType} numberOfLines={1}>{report.report_type}</Text>
               <View style={styles.badgeContainer}>
                 <View style={[styles.priorityBadge, { backgroundColor: getPriorityColor(report.priority) }]}>
                   <MaterialIcons name={getPriorityIcon(report.priority)} size={12} color="white" />
@@ -378,15 +384,15 @@ export default function ReportsScreen() {
           <View style={styles.reportMeta}>
             <View style={styles.metaItem}>
               <MaterialIcons name="location-on" size={14} color="#666" />
-              <Text style={styles.metaText} numberOfLines={1}>{report.location}</Text>
+              <Text style={styles.metaText} numberOfLines={1}>{report.address}</Text>
             </View>
             <View style={styles.metaItem}>
               <MaterialIcons name="person" size={14} color="#666" />
-              <Text style={styles.metaText}>{report.reportedBy}</Text>
+              <Text style={styles.metaText}>{report.first_name} {report.last_name}</Text>
             </View>
             <View style={styles.metaItem}>
               <MaterialIcons name="date-range" size={14} color="#666" />
-              <Text style={styles.metaText}>{report.dateReported}</Text>
+              <Text style={styles.metaText}>{new Date(report.created_at).toLocaleDateString()}</Text>
             </View>
           </View>
 
@@ -427,7 +433,7 @@ export default function ReportsScreen() {
         <FlatList
           data={groupReports}
           renderItem={renderReportItem}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item) => item.id.toString()}
           showsVerticalScrollIndicator={false}
         />
       </View>
@@ -577,9 +583,15 @@ export default function ReportsScreen() {
             <FlatList
               data={getFilteredReports()}
               renderItem={renderReportItem}
-              keyExtractor={(item) => item.id}
+              keyExtractor={(item) => item.id.toString()}
               showsVerticalScrollIndicator={false}
               contentContainerStyle={styles.reportsListContent}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={onRefresh}
+                />
+              }
             />
           ) : (
             <FlatList
@@ -698,7 +710,7 @@ export default function ReportsScreen() {
                     >
                       <MaterialIcons name="close" size={24} color="white" />
                     </TouchableOpacity>
-                    <Text style={styles.detailsTitle}>{selectedReport.type}</Text>
+                    <Text style={styles.detailsTitle}>{selectedReport.report_type}</Text>
                     <View style={styles.detailsBadges}>
                       <View style={[styles.detailsStatusBadge, { backgroundColor: getStatusColor(selectedReport.status) }]}>
                         <Text style={styles.detailsBadgeText}>{selectedReport.status.toUpperCase()}</Text>
@@ -720,7 +732,7 @@ export default function ReportsScreen() {
                       <Text style={styles.detailsSectionTitle}>Location</Text>
                       <View style={styles.detailsLocationRow}>
                         <MaterialIcons name="location-on" size={20} color="#667eea" />
-                        <Text style={styles.detailsLocationText}>{selectedReport.location}</Text>
+                        <Text style={styles.detailsLocationText}>{selectedReport.address}</Text>
                       </View>
                     </View>
                     
@@ -728,12 +740,12 @@ export default function ReportsScreen() {
                       <View style={styles.detailsInfoItem}>
                         <MaterialIcons name="person" size={18} color="#666" />
                         <Text style={styles.detailsInfoLabel}>Reported By</Text>
-                        <Text style={styles.detailsInfoValue}>{selectedReport.reportedBy}</Text>
+                        <Text style={styles.detailsInfoValue}>{selectedReport.first_name} {selectedReport.last_name}</Text>
                       </View>
                       <View style={styles.detailsInfoItem}>
                         <MaterialIcons name="date-range" size={18} color="#666" />
                         <Text style={styles.detailsInfoLabel}>Date</Text>
-                        <Text style={styles.detailsInfoValue}>{selectedReport.dateReported}</Text>
+                        <Text style={styles.detailsInfoValue}>{new Date(selectedReport.created_at).toLocaleDateString()}</Text>
                       </View>
                     </View>
                     

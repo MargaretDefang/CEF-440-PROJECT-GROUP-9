@@ -9,70 +9,29 @@ import {
   StatusBar,
   Animated,
   Alert,
-  ColorValue
+  ColorValue,
+  RefreshControl
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Animatable from 'react-native-animatable';
 import { useRouter } from 'expo-router';
-
-type Notification = {
-  id: string;
-  type: 'construction' | 'accident' | 'hazard' | 'alert';
-  title: string;
-  location: string;
-  time: string;
-  date: string;
-  read: boolean;
-  priority?: 'high' | 'medium' | 'low';
-};
+import { useNotifications } from '../contexts/NotificationContext';
 
 export default function NotificationScreen() {
   const router = useRouter();
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const { 
+    notifications, 
+    unreadCount, 
+    isConnected,
+    markAsRead, 
+    markAllAsRead, 
+    deleteNotification, 
+    refreshNotifications 
+  } = useNotifications();
   
-  const [notifications, setNotifications] = useState<Notification[]>([
-    { 
-      id: '1', 
-      type: 'construction', 
-      title: 'Road construction ahead', 
-      location: 'Malingo Junction', 
-      time: '12:23', 
-      date: 'Today', 
-      read: false,
-      priority: 'high'
-    },
-    { 
-      id: '2', 
-      type: 'accident', 
-      title: 'Traffic accident reported', 
-      location: 'Mile 4 Roundabout', 
-      time: '11:15', 
-      date: 'Today', 
-      read: false,
-      priority: 'high'
-    },
-    { 
-      id: '3', 
-      type: 'hazard', 
-      title: 'Road hazard detected', 
-      location: 'Buea Road Junction', 
-      time: '09:45', 
-      date: 'Yesterday', 
-      read: true,
-      priority: 'medium'
-    },
-    { 
-      id: '4', 
-      type: 'alert', 
-      title: 'Heavy traffic conditions', 
-      location: 'Mile 17 Highway', 
-      time: '08:15', 
-      date: 'Oct 12', 
-      read: true,
-      priority: 'low'
-    },
-  ]);
+  const [refreshing, setRefreshing] = useState(false);
 
   React.useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -82,13 +41,17 @@ export default function NotificationScreen() {
     }).start();
   }, []);
 
-  const markAsRead = (id: string) => {
-    setNotifications(prev =>
-      prev.map(n => n.id === id ? { ...n, read: true } : n)
-    );
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await refreshNotifications();
+    setRefreshing(false);
   };
 
-  const deleteNotification = (id: string) => {
+  const handleMarkAsRead = (id: number) => {
+    markAsRead(id);
+  };
+
+  const handleDeleteNotification = (id: number) => {
     Alert.alert(
       'Delete Notification',
       'Are you sure you want to delete this notification?',
@@ -97,15 +60,13 @@ export default function NotificationScreen() {
         { 
           text: 'Delete', 
           style: 'destructive',
-          onPress: () => {
-            setNotifications(prev => prev.filter(n => n.id !== id));
-          }
+          onPress: () => deleteNotification(id)
         }
       ]
     );
   };
 
-  const deleteAll = () => {
+  const handleDeleteAll = () => {
     Alert.alert(
       'Clear All Notifications',
       'This will remove all notifications. Continue?',
@@ -114,10 +75,18 @@ export default function NotificationScreen() {
         { 
           text: 'Clear All', 
           style: 'destructive',
-          onPress: () => setNotifications([])
+          onPress: () => {
+            notifications.forEach(notification => {
+              deleteNotification(notification.id);
+            });
+          }
         }
       ]
     );
+  };
+
+  const handleMarkAllAsRead = () => {
+    markAllAsRead();
   };
 
   type NotificationConfig = {
@@ -129,6 +98,12 @@ export default function NotificationScreen() {
 
   const getNotificationConfig = (type: string): NotificationConfig => {
     const configs: Record<string, NotificationConfig> = {
+      road_sign: {
+        icon: 'traffic',
+        color: '#3498db',
+        gradient: ['#3498db', '#2980b9'] as const,
+        bgColor: 'rgba(52, 152, 219, 0.1)'
+      },
       construction: {
         icon: 'construction',
         color: '#f39c12',
@@ -147,36 +122,79 @@ export default function NotificationScreen() {
         gradient: ['#f1c40f', '#f39c12'] as const,
         bgColor: 'rgba(241, 196, 15, 0.1)'
       },
-      alert: {
-        icon: 'notifications',
-        color: '#3498db',
-        gradient: ['#3498db', '#2980b9'] as const,
-        bgColor: 'rgba(52, 152, 219, 0.1)'
+      traffic: {
+        icon: 'traffic',
+        color: '#9b59b6',
+        gradient: ['#9b59b6', '#8e44ad'] as const,
+        bgColor: 'rgba(155, 89, 182, 0.1)'
+      },
+      weather: {
+        icon: 'wb-sunny',
+        color: '#e67e22',
+        gradient: ['#e67e22', '#d35400'] as const,
+        bgColor: 'rgba(230, 126, 34, 0.1)'
+      },
+      maintenance: {
+        icon: 'build',
+        color: '#34495e',
+        gradient: ['#34495e', '#2c3e50'] as const,
+        bgColor: 'rgba(52, 73, 94, 0.1)'
+      },
+      event: {
+        icon: 'event',
+        color: '#1abc9c',
+        gradient: ['#1abc9c', '#16a085'] as const,
+        bgColor: 'rgba(26, 188, 156, 0.1)'
+      },
+      sign_issue: {
+        icon: 'report-problem',
+        color: '#e74c3c',
+        gradient: ['#e74c3c', '#c0392b'] as const,
+        bgColor: 'rgba(231, 76, 60, 0.1)'
       }
     };
-    return configs[type as keyof typeof configs] || configs.alert;
+    return configs[type] || configs.road_sign;
   };
 
-  const getPriorityColor = (priority?: string) => {
-    switch (priority) {
-      case 'high': return '#e74c3c';
-      case 'medium': return '#f39c12';
+  const getSeverityColor = (severity: string) => {
+    switch (severity) {
+      case 'critical': return '#e74c3c';
+      case 'high': return '#f39c12';
+      case 'medium': return '#f1c40f';
       case 'low': return '#27ae60';
       default: return '#3498db';
     }
   };
 
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffTime = Math.abs(now.getTime() - date.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 1) return 'Today';
+    if (diffDays === 2) return 'Yesterday';
+    if (diffDays <= 7) return `${diffDays - 1} days ago`;
+    
+    return date.toLocaleDateString();
+  };
+
+  const formatTime = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
   const groupByDate = () => {
-    const grouped: Record<string, Notification[]> = {};
+    const grouped: Record<string, typeof notifications> = {};
     notifications.forEach(n => {
-      if (!grouped[n.date]) grouped[n.date] = [];
-      grouped[n.date].push(n);
+      const date = formatDate(n.created_at);
+      if (!grouped[date]) grouped[date] = [];
+      grouped[date].push(n);
     });
     return grouped;
   };
 
   const grouped = groupByDate();
-  const unreadCount = notifications.filter(n => !n.read).length;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -232,14 +250,27 @@ export default function NotificationScreen() {
                     <Text style={styles.unreadCount}>{unreadCount}</Text>
                   </View>
                 )}
+                {isConnected && (
+                  <View style={styles.connectionIndicator}>
+                    <MaterialIcons name="wifi" size={12} color="#1dd1a1" />
+                  </View>
+                )}
               </View>
 
-              <TouchableOpacity 
-                style={styles.clearButton}
-                onPress={deleteAll}
-              >
-                <MaterialIcons name="clear-all" size={22} color="white" />
-              </TouchableOpacity>
+              <View style={styles.headerActions}>
+                <TouchableOpacity 
+                  style={styles.headerButton}
+                  onPress={handleMarkAllAsRead}
+                >
+                  <MaterialIcons name="done-all" size={20} color="white" />
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.clearButton}
+                  onPress={handleDeleteAll}
+                >
+                  <MaterialIcons name="clear-all" size={22} color="white" />
+                </TouchableOpacity>
+              </View>
             </View>
             
             <Text style={styles.headerSubtitle}>
@@ -256,6 +287,14 @@ export default function NotificationScreen() {
             style={styles.scrollView}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.scrollContent}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={handleRefresh}
+                colors={['#667eea']}
+                tintColor="#667eea"
+              />
+            }
           >
             {Object.entries(grouped).map(([date, items], dateIndex) => (
               <Animatable.View
@@ -282,9 +321,9 @@ export default function NotificationScreen() {
                       <TouchableOpacity
                         style={[
                           styles.notificationCard,
-                          !notification.read && styles.unreadCard
+                          !notification.is_read && styles.unreadCard
                         ]}
-                        onPress={() => markAsRead(notification.id)}
+                        onPress={() => handleMarkAsRead(notification.id)}
                         activeOpacity={0.8}
                       >
                         <LinearGradient
@@ -294,15 +333,13 @@ export default function NotificationScreen() {
                           ]}
                           style={styles.cardGradient}
                         >
-                          {/* Priority Indicator */}
-                          {notification.priority && (
-                            <View 
-                              style={[
-                                styles.priorityIndicator,
-                                { backgroundColor: getPriorityColor(notification.priority) }
-                              ]} 
-                            />
-                          )}
+                          {/* Severity Indicator */}
+                          <View 
+                            style={[
+                              styles.severityIndicator,
+                              { backgroundColor: getSeverityColor(notification.severity) }
+                            ]} 
+                          />
 
                           <View style={styles.cardContent}>
                             {/* Icon Section */}
@@ -327,6 +364,9 @@ export default function NotificationScreen() {
                               <Text style={styles.notificationTitle}>
                                 {notification.title}
                               </Text>
+                              <Text style={styles.notificationDescription}>
+                                {notification.description}
+                              </Text>
                               <View style={styles.locationRow}>
                                 <MaterialIcons 
                                   name="location-on" 
@@ -341,14 +381,14 @@ export default function NotificationScreen() {
 
                             {/* Right Section */}
                             <View style={styles.rightSection}>
-                              <Text style={styles.timeText}>{notification.time}</Text>
+                              <Text style={styles.timeText}>{formatTime(notification.created_at)}</Text>
                               <TouchableOpacity
                                 style={styles.deleteButton}
-                                onPress={() => deleteNotification(notification.id)}
+                                onPress={() => handleDeleteNotification(notification.id)}
                               >
                                 <MaterialIcons name="delete" size={18} color="rgba(255, 255, 255, 0.6)" />
                               </TouchableOpacity>
-                              {!notification.read && (
+                              {!notification.is_read && (
                                 <View style={styles.unreadDot} />
                               )}
                             </View>
@@ -479,11 +519,29 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderWidth: 2,
     borderColor: 'rgba(255, 255, 255, 0.3)',
+    marginRight: 8,
   },
   unreadCount: {
     color: 'white',
     fontSize: 12,
     fontWeight: 'bold',
+  },
+  connectionIndicator: {
+    backgroundColor: 'rgba(29, 209, 161, 0.2)',
+    borderRadius: 8,
+    padding: 4,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  headerButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    borderRadius: 20,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   clearButton: {
     backgroundColor: 'rgba(255, 255, 255, 0.15)',
@@ -552,7 +610,7 @@ const styles = StyleSheet.create({
   cardGradient: {
     position: 'relative',
   },
-  priorityIndicator: {
+  severityIndicator: {
     position: 'absolute',
     left: 0,
     top: 0,
@@ -585,6 +643,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#ffffff',
     marginBottom: 4,
+  },
+  notificationDescription: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.8)',
+    marginBottom: 6,
   },
   locationRow: {
     flexDirection: 'row',

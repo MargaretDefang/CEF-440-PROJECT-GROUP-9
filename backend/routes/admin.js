@@ -362,4 +362,84 @@ router.get('/users/stats', adminAuth, async (req, res) => {
   }
 });
 
+// Test notification system
+router.post('/test-notification', adminAuth, async (req, res) => {
+  try {
+    console.log('Test notification endpoint called');
+    console.log('User making request:', req.user);
+    console.log('Request body:', req.body);
+    
+    const { title, description, type = 'road_sign', severity = 'medium' } = req.body;
+    
+    if (!title || !description) {
+      return res.status(400).json({ message: 'Title and description are required' });
+    }
+
+    // Create a test notification
+    const testNotification = {
+      title,
+      description,
+      type,
+      location: 'Test Location',
+      latitude: 4.0511, // Default coordinates (Douala, Cameroon)
+      longitude: 9.7679,
+      severity,
+      data: { test: true }
+    };
+
+    console.log('Test notification created:', testNotification);
+
+    // Send to all connected users
+    if (global.notificationService) {
+      console.log('Notification service available');
+      // Get all connected users
+      const connectedUsers = Array.from(global.notificationService.connectedUsers.keys());
+      console.log('Connected users:', connectedUsers);
+      
+      for (const userId of connectedUsers) {
+        console.log(`Sending notification to user ${userId}`);
+        await global.notificationService.createNotificationForUser(userId, testNotification);
+      }
+
+      res.json({ 
+        message: 'Test notification sent successfully',
+        sent_to_users: connectedUsers.length,
+        notification: testNotification
+      });
+    } else {
+      console.log('Notification service not available');
+      res.status(500).json({ message: 'Notification service not available' });
+    }
+  } catch (error) {
+    console.error('Test notification error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Get connected users count
+router.get('/connected-users', adminAuth, async (req, res) => {
+  try {
+    console.log('Connected users endpoint called');
+    console.log('Global notification service exists:', !!global.notificationService);
+    
+    if (global.notificationService) {
+      console.log('Notification service details:');
+      console.log('- Connected users map size:', global.notificationService.connectedUsers.size);
+      console.log('- Connected users keys:', Array.from(global.notificationService.connectedUsers.keys()));
+      console.log('- Connected users values:', Array.from(global.notificationService.connectedUsers.values()));
+    }
+    
+    const count = global.notificationService ? global.notificationService.getConnectedUsersCount() : 0;
+    console.log('Returning connected users count:', count);
+    
+    res.json({ 
+      connected_users: count,
+      users: global.notificationService ? Array.from(global.notificationService.connectedUsers.keys()) : []
+    });
+  } catch (error) {
+    console.error('Get connected users error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 module.exports = router; 

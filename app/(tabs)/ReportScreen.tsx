@@ -19,13 +19,19 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Animatable from 'react-native-animatable';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
+import { ApiService } from '../services/ApiService';
 
 const { width, height } = Dimensions.get('window');
+const apiService = new ApiService();
 
 export default function ReportScreen() {
   const [report, setReport] = useState('');
+  const [reportTitle, setReportTitle] = useState('');
+  const [reportType, setReportType] = useState('road_issue');
+  const [priority, setPriority] = useState<'low' | 'medium' | 'high' | 'urgent'>('medium');
   const [image, setImage] = useState<string | null>(null);
   const [location, setLocation] = useState<string>('Fetching location...');
+  const [currentLocation, setCurrentLocation] = useState<{latitude: number, longitude: number} | null>(null);
   const [loading, setLoading] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   
@@ -39,6 +45,9 @@ export default function ReportScreen() {
       duration: 1000,
       useNativeDriver: true,
     }).start();
+
+    // Get current location
+    getCurrentLocation();
 
     // Keyboard listeners
     const keyboardShowListener = Keyboard.addListener('keyboardDidShow', () => {
@@ -54,31 +63,41 @@ export default function ReportScreen() {
     };
   }, []);
 
-  // Fetch location on load
-  useEffect(() => {
-    (async () => {
-      try {
-        let { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') {
-          setLocation('Location permission denied');
-          return;
-        }
-
-        let loc = await Location.getCurrentPositionAsync({});
-        let address = await Location.reverseGeocodeAsync(loc.coords);
-        if (address.length > 0) {
-          const addr = address[0];
-          setLocation(
-            `${addr.street || ''}, ${addr.city || ''}, ${addr.region || ''}`.trim().replace(/^,\s*/, '')
-          );
-        } else {
-          setLocation('Location unavailable');
-        }
-      } catch (error) {
-        setLocation('Location unavailable');
+  const getCurrentLocation = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        setLocation('Location permission denied');
+        return;
       }
-    })();
-  }, []);
+
+      const location = await Location.getCurrentPositionAsync({});
+      const { latitude, longitude } = location.coords;
+      setCurrentLocation({ latitude, longitude });
+
+      // Get address from coordinates
+      const addressResponse = await Location.reverseGeocodeAsync({
+        latitude,
+        longitude
+      });
+
+      if (addressResponse.length > 0) {
+        const address = addressResponse[0];
+        const addressString = [
+          address.street,
+          address.city,
+          address.region,
+          address.country
+        ].filter(Boolean).join(', ');
+        setLocation(addressString || `${latitude}, ${longitude}`);
+      } else {
+        setLocation(`${latitude}, ${longitude}`);
+      }
+    } catch (error) {
+      console.error('Error getting location:', error);
+      setLocation('Unable to get location');
+    }
+  };
 
   const animatePress = () => {
     Animated.sequence([
@@ -95,17 +114,15 @@ export default function ReportScreen() {
     ]).start();
   };
 
-  // Pick image with enhanced UX
   const pickImage = async () => {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission Required', 'Please grant camera roll permissions to attach photos.');
+        Alert.alert('Permission Required', 'Please grant photo library permissions to select photos.');
         return;
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [16, 9],
         quality: 0.8,
@@ -154,8 +171,13 @@ export default function ReportScreen() {
   };
 
   const handleSubmit = async () => {
-    if (report.trim() === '') {
-      Alert.alert('Missing Information', 'Please describe the issue you want to report.');
+    if (!reportTitle.trim() || !report.trim()) {
+      Alert.alert('Missing Information', 'Please provide a title and description for your report.');
+      return;
+    }
+
+    if (!currentLocation) {
+      Alert.alert('Location Required', 'Please allow location access to submit a report.');
       return;
     }
 
@@ -163,17 +185,41 @@ export default function ReportScreen() {
     setLoading(true);
 
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Upload image if provided
+      let imageUrl = null;
+      if (image) {
+        try {
+          const uploadResult = await apiService.uploadReportImage(image);
+          imageUrl = uploadResult.imageUrl;
+        } catch (error) {
+          console.error('Image upload failed:', error);
+          Alert.alert('Warning', 'Report submitted but image upload failed. You can add the image later.');
+        }
+      }
+
+      // Create report
+      const reportData = {
+        title: reportTitle.trim(),
+        description: report.trim(),
+        latitude: currentLocation.latitude,
+        longitude: currentLocation.longitude,
+        address: location,
+        report_type: reportType,
+        priority: priority,
+        images: imageUrl ? [imageUrl] : []
+      };
+
+      await apiService.createReport(reportData);
       
       Alert.alert(
         'Report Submitted!',
-        'Thank you for helping improve road safety. Your report has been submitted successfully.',
+        'Thank you for helping improve road safety. Your report has been submitted successfully and will be reviewed by our team.',
         [
           {
             text: 'Submit Another',
             onPress: () => {
               setReport('');
+              setReportTitle('');
               setImage(null);
             }
           },
@@ -181,9 +227,9 @@ export default function ReportScreen() {
         ]
       );
       
-      console.log({ report, image, location });
     } catch (error) {
-      Alert.alert('Error', 'Failed to submit report. Please try again.');
+      console.error('Report submission error:', error);
+      Alert.alert('Error', 'Failed to submit report. Please check your connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -276,7 +322,100 @@ export default function ReportScreen() {
             delay={400}
             style={styles.descriptionSection}
           >
-            <Text style={styles.sectionTitle}>Issue Description</Text>
+            <Text style={styles.sectionTitle}>Report Details</Text>
+            
+            {/* Report Title */}
+            <View style={styles.inputGlass}>
+              <View style={styles.inputHeader}>
+                <MaterialIcons name="title" size={20} color="#feca57" />
+                <Text style={styles.inputLabel}>Report Title</Text>
+              </View>
+              <TextInput
+                style={styles.textInput}
+                placeholder="Brief title for your report..."
+                placeholderTextColor="rgba(255, 255, 255, 0.6)"
+                value={reportTitle}
+                onChangeText={setReportTitle}
+                maxLength={100}
+              />
+              <Text style={styles.characterCount}>{reportTitle.length}/100</Text>
+            </View>
+
+            {/* Report Type */}
+            <View style={styles.inputGlass}>
+              <View style={styles.inputHeader}>
+                <MaterialIcons name="category" size={20} color="#feca57" />
+                <Text style={styles.inputLabel}>Report Type</Text>
+              </View>
+              <View style={styles.typeContainer}>
+                {[
+                  { value: 'road_issue', label: 'Road Issue', icon: 'road' },
+                  { value: 'sign_problem', label: 'Sign Problem', icon: 'traffic' },
+                  { value: 'safety_hazard', label: 'Safety Hazard', icon: 'warning' },
+                  { value: 'construction', label: 'Construction', icon: 'construction' }
+                ].map((type) => (
+                  <TouchableOpacity
+                    key={type.value}
+                    style={[
+                      styles.typeOption,
+                      reportType === type.value && styles.typeOptionSelected
+                    ]}
+                    onPress={() => setReportType(type.value)}
+                  >
+                    <MaterialIcons 
+                      name={type.icon === 'road' ? 'directions-car' : type.icon as any} 
+                      size={16} 
+                      color={reportType === type.value ? 'white' : '#feca57'} 
+                    />
+                    <Text style={[
+                      styles.typeOptionText,
+                      reportType === type.value && styles.typeOptionTextSelected
+                    ]}>
+                      {type.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {/* Priority */}
+            <View style={styles.inputGlass}>
+              <View style={styles.inputHeader}>
+                <MaterialIcons name="priority-high" size={20} color="#feca57" />
+                <Text style={styles.inputLabel}>Priority Level</Text>
+              </View>
+              <View style={styles.priorityContainer}>
+                {[
+                  { value: 'low', label: 'Low', color: '#1dd1a1' },
+                  { value: 'medium', label: 'Medium', color: '#feca57' },
+                  { value: 'high', label: 'High', color: '#ff9ff3' },
+                  { value: 'urgent', label: 'Urgent', color: '#ff6b6b' }
+                ].map((priorityOption) => (
+                  <TouchableOpacity
+                    key={priorityOption.value}
+                    style={[
+                      styles.priorityOption,
+                      priority === priorityOption.value && styles.priorityOptionSelected,
+                      { borderColor: priorityOption.color }
+                    ]}
+                    onPress={() => setPriority(priorityOption.value as any)}
+                  >
+                    <View style={[
+                      styles.priorityIndicator,
+                      { backgroundColor: priorityOption.color }
+                    ]} />
+                    <Text style={[
+                      styles.priorityOptionText,
+                      priority === priorityOption.value && styles.priorityOptionTextSelected
+                    ]}>
+                      {priorityOption.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {/* Issue Description */}
             <View style={styles.inputGlass}>
               <View style={styles.inputHeader}>
                 <MaterialIcons name="edit" size={20} color="#feca57" />
@@ -710,5 +849,70 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.8)',
     marginLeft: 8,
     flex: 1,
+  },
+
+  // Type Section
+  typeContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  typeOption: {
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    borderRadius: 16,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    minWidth: '45%',
+  },
+  typeOptionSelected: {
+    borderColor: '#feca57',
+    backgroundColor: 'rgba(254, 202, 87, 0.2)',
+  },
+  typeOptionText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.8)',
+    marginLeft: 8,
+  },
+  typeOptionTextSelected: {
+    color: '#feca57',
+  },
+
+  // Priority Section
+  priorityContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  priorityOption: {
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    borderRadius: 16,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    minWidth: '45%',
+  },
+  priorityOptionSelected: {
+    borderColor: '#feca57',
+    backgroundColor: 'rgba(254, 202, 87, 0.2)',
+  },
+  priorityIndicator: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+  priorityOptionText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.8)',
+    marginLeft: 8,
+  },
+  priorityOptionTextSelected: {
+    color: '#feca57',
   },
 });

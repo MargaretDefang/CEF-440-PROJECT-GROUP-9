@@ -20,6 +20,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Animatable from 'react-native-animatable';
 import { ApiService, API_BASE_URL } from '../services/ApiService';
+import { useNotifications } from '../contexts/NotificationContext';
 
 const apiService = new ApiService();
 
@@ -59,6 +60,7 @@ const { width, height } = Dimensions.get('window');
 
 export default function UserHomeScreen() {
   const router = useRouter();
+  const { unreadCount } = useNotifications();
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<SignCategoryWithUI | null>(null);
@@ -411,9 +413,11 @@ export default function UserHomeScreen() {
                   onPress={() => router.push('/(tabs)/NotificationScreen')}
                 >
                   <MaterialIcons name="notifications" size={22} color="white" />
-                  <View style={styles.notificationBadge}>
-                    <Text style={styles.badgeText}>3</Text>
-                  </View>
+                  {unreadCount > 0 && (
+                    <View style={styles.notificationBadge}>
+                      <Text style={styles.badgeText}>{unreadCount}</Text>
+                    </View>
+                  )}
                 </TouchableOpacity>
                 <TouchableOpacity 
                   style={styles.headerButton}
