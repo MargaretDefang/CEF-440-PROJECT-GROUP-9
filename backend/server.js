@@ -10,6 +10,7 @@ const authRoutes = require('./routes/auth');
 const reportsRoutes = require('./routes/reports');
 const notificationsRoutes = require('./routes/notifications');
 const signsRoutes = require('./routes/signs');
+const adminRoutes = require('./routes/admin');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -25,8 +26,10 @@ const corsOptions = {
       'http://localhost:8081', // Expo development server
       'http://localhost:19006', // Expo web
       'exp://localhost:19000', // Expo Go
-      'http://192.168.1.100:8081', // Local network for mobile testing
-      'http://192.168.1.100:19006',
+      'http://192.168.138.138:3000', // New local IP
+      'http://192.168.138.138:8081', // Expo development server on new IP
+      'http://192.168.138.138:19006', // Expo web on new IP
+      'exp://192.168.138.138:19000', // Expo Go on new IP
       process.env.CORS_ORIGIN
     ].filter(Boolean); // Remove undefined values
     
@@ -92,6 +95,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/signs', signsRoutes);
+app.use('/api/admin', adminRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {
@@ -124,12 +128,13 @@ app.use((err, req, res, next) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`🔗 Health check: http://localhost:${PORT}/health`);
+  console.log(`🌐 Network access: http://192.168.138.138:${PORT}/health`);
   console.log(`🔐 JWT Secret: ${process.env.JWT_SECRET ? 'Configured' : 'Using default'}`);
   console.log(`🌐 CORS Origin: ${process.env.CORS_ORIGIN || 'http://localhost:3000'}`);
 });
 
-module.exports = app; 
+module.exports = app;

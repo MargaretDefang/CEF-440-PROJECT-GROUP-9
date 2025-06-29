@@ -23,7 +23,7 @@ import { API_BASE_URL } from '../services/ApiService';
 import { useFocusEffect } from '@react-navigation/native';
 import { getAvatarUrl } from '../utils/avatar';
 
-const apiBaseUrl = API_BASE_URL || 'http://192.168.30.138:3000';
+const apiBaseUrl = API_BASE_URL || 'http://192.168.138.138:3000';
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -219,7 +219,7 @@ export default function ProfileScreen() {
           style: 'destructive',
           onPress: async () => {
             await logout();
-            router.replace('/(auth)/UserLoginScreen');
+            router.push('/(auth)/UserLoginScreen');
           },
         },
       ]

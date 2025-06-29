@@ -1,11 +1,34 @@
 import { StyleSheet, Text, View, Platform } from 'react-native'
 import React from 'react'
-import { Tabs } from 'expo-router'
+import { Tabs, Redirect } from 'expo-router'
+import { icons } from '../../assets/constants/icons'
 import { TabIcon } from '../(tabs)/components/TabIcon'
 import { LinearGradient } from 'expo-linear-gradient'
 import { BlurView } from 'expo-blur'
+import { useAuth } from '../contexts/AuthContext'
 
 const AdminLayout = () => {
+  const { isAuthenticated, isLoading, user } = useAuth();
+
+  // Show loading screen while checking authentication
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#667eea' }}>
+        <Text style={{ color: 'white', fontSize: 16 }}>Loading...</Text>
+      </View>
+    );
+  }
+
+  // Redirect to login if not authenticated
+  if (!isAuthenticated) {
+    return <Redirect href="/(auth)/UserLoginScreen" />;
+  }
+
+  // Redirect to home if not admin
+  if (user?.user_type !== 'admin') {
+    return <Redirect href="/(tabs)/HomeScreen" />;
+  }
+
   return (
     <Tabs
       screenOptions={{
@@ -75,7 +98,6 @@ const AdminLayout = () => {
             <View style={[styles.iconContainer, focused && styles.activeIconContainer]}>
               <TabIcon icon="report" focused={focused} color={color} />
               {focused && <View style={styles.activeIndicator} />}
-              {/* Add notification badge */}
               <View style={styles.notificationBadge}>
                 <Text style={styles.badgeText}>3</Text>
               </View>

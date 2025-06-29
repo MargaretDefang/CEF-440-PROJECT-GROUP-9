@@ -1,8 +1,22 @@
 const express = require('express');
 const { auth } = require('../middleware/auth');
 const pool = require('../config/database');
+const multer = require('multer');
+const path = require('path');
 
 const router = express.Router();
+
+// Set up storage for uploaded images
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, path.join(__dirname, '../uploads/'));
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, uniqueSuffix + '-' + file.originalname);
+  }
+});
+const upload = multer({ storage: storage });
 
 // Get all sign categories
 router.get('/categories', async (req, res) => {
@@ -105,30 +119,6 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Get single sign
-router.get('/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const sign = await pool.query(
-      `SELECT rs.*, sc.name as category_name 
-       FROM road_signs rs 
-       JOIN sign_categories sc ON rs.category_id = sc.id 
-       WHERE rs.id = $1`,
-      [id]
-    );
-
-    if (sign.rows.length === 0) {
-      return res.status(404).json({ message: 'Sign not found' });
-    }
-
-    res.json(sign.rows[0]);
-  } catch (error) {
-    console.error('Get sign error:', error);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
 // Search signs
 router.get('/search/:query', async (req, res) => {
   try {
@@ -171,6 +161,144 @@ router.get('/popular', async (req, res) => {
     console.error('Get popular signs error:', error);
     res.status(500).json({ message: 'Server error' });
   }
+});
+
+// Get single sign
+router.get('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const sign = await pool.query(
+      `SELECT rs.*, sc.name as category_name 
+       FROM road_signs rs 
+       JOIN sign_categories sc ON rs.category_id = sc.id 
+       WHERE rs.id = $1`,
+      [id]
+    );
+
+    if (sign.rows.length === 0) {
+      return res.status(404).json({ message: 'Sign not found' });
+    }
+
+    res.json(sign.rows[0]);
+  } catch (error) {
+    console.error('Get sign error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Create a new sign category
+router.post('/categories', auth, async (req, res) => {
+  try {
+    const { name, description } = req.body;
+    if (!name) return res.status(400).json({ message: 'Name is required' });
+    const result = await pool.query(
+      'INSERT INTO sign_categories (name, description) VALUES ($1, $2) RETURNING *',
+      [name, description]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error('Create sign category error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Update a sign category
+router.put('/categories/:id', auth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, description } = req.body;
+    const result = await pool.query(
+      'UPDATE sign_categories SET name = $1, description = $2 WHERE id = $3 RETURNING *',
+      [name, description, id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Category not found' });
+    }
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Update sign category error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Delete a sign category
+router.delete('/categories/:id', auth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(
+      'DELETE FROM sign_categories WHERE id = $1 RETURNING *',
+      [id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Category not found' });
+    }
+    res.json({ message: 'Category deleted' });
+  } catch (error) {
+    console.error('Delete sign category error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Update a sign
+router.put('/:id', auth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, description, meaning, image_url, category_id } = req.body;
+    const result = await pool.query(
+      'UPDATE road_signs SET name = $1, description = $2, meaning = $3, image_url = $4, category_id = $5 WHERE id = $6 RETURNING *',
+      [name, description, meaning, image_url, category_id, id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Sign not found' });
+    }
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Update sign error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Delete a sign
+router.delete('/:id', auth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(
+      'DELETE FROM road_signs WHERE id = $1 RETURNING *',
+      [id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Sign not found' });
+    }
+    res.json({ message: 'Sign deleted' });
+  } catch (error) {
+    console.error('Delete sign error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Create a new sign
+router.post('/', auth, async (req, res) => {
+  try {
+    const { name, description, meaning, image_url, category_id } = req.body;
+    const result = await pool.query(
+      'INSERT INTO road_signs (name, description, meaning, image_url, category_id) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+      [name, description, meaning, image_url, category_id]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error('Create sign error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Image upload endpoint
+router.post('/upload', auth, upload.single('image'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ message: 'No file uploaded' });
+  }
+  // Return the relative path or URL to the uploaded image
+  res.json({ imageUrl: `/uploads/${req.file.filename}` });
 });
 
 module.exports = router; 

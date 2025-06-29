@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Alert } from 'react-native';
 
-export const API_BASE_URL = 'http://192.168.30.138:3000'; // Updated to correct backend IP
+export const API_BASE_URL = 'http://192.168.138.138:3000';
 
 export class ApiService {
   static API_BASE_URL = API_BASE_URL;
@@ -15,6 +16,7 @@ export class ApiService {
   private async loadToken() {
     try {
       this.token = await AsyncStorage.getItem('auth_token');
+      console.log('ApiService - Token loaded:', this.token ? `Token exists (${this.token.substring(0, 20)}...)` : 'No token');
     } catch (error) {
       console.error('Error loading token:', error);
     }
@@ -45,6 +47,9 @@ export class ApiService {
 
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`;
+      console.log('ApiService - Authorization header set:', `Bearer ${this.token.substring(0, 20)}...`);
+    } else {
+      console.log('ApiService - No token available for Authorization header');
     }
 
     return headers;
@@ -186,6 +191,67 @@ export class ApiService {
     }
   }
 
+  // Admin user management methods
+  async getUsers(page = 1, limit = 20, search?: string, role?: string, status?: string) {
+    const params = new URLSearchParams({
+      page: page.toString(),
+      limit: limit.toString(),
+    });
+    
+    if (search) params.append('search', search);
+    if (role && role !== 'all') params.append('role', role);
+    if (status && status !== 'all') params.append('status', status);
+
+    return await this.makeRequest(`/api/admin/users?${params}`);
+  }
+
+  async getUserById(id: number) {
+    return await this.makeRequest(`/api/admin/users/${id}`);
+  }
+
+  async updateUser(id: number, userData: {
+    first_name?: string;
+    last_name?: string;
+    email?: string;
+    phone?: string;
+    user_type?: 'user' | 'admin' | 'moderator';
+    status?: 'active' | 'suspended' | 'pending';
+  }) {
+    return await this.makeRequest(`/api/admin/users/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(userData),
+    });
+  }
+
+  async deleteUser(id: number) {
+    return await this.makeRequest(`/api/admin/users/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async bulkUpdateUsers(userIds: number[], action: 'activate' | 'suspend' | 'promote' | 'demote') {
+    return await this.makeRequest('/api/admin/users/bulk', {
+      method: 'PUT',
+      body: JSON.stringify({ user_ids: userIds, action }),
+    });
+  }
+
+  async getUserStats() {
+    return await this.makeRequest('/api/admin/users/stats');
+  }
+
+  async testAdminRoute() {
+    return await this.makeRequest('/api/admin/test');
+  }
+
+  async testDatabaseConnection() {
+    return await this.makeRequest('/api/admin/db-test');
+  }
+
+  async testEnvironment() {
+    return await this.makeRequest('/api/admin/env-test');
+  }
+
   // Reports methods
   async getReports(page = 1, limit = 10, filters?: { status?: string; user_id?: number }) {
     const params = new URLSearchParams({
@@ -198,11 +264,11 @@ export class ApiService {
       if (filters.user_id) params.append('user_id', filters.user_id.toString());
     }
 
-    return await this.makeRequest(`/reports?${params}`);
+    return await this.makeRequest(`/api/reports?${params}`);
   }
 
   async getReport(id: number) {
-    return await this.makeRequest(`/reports/${id}`);
+    return await this.makeRequest(`/api/reports/${id}`);
   }
 
   async createReport(reportData: {
@@ -215,7 +281,7 @@ export class ApiService {
     priority?: 'low' | 'medium' | 'high' | 'urgent';
     images?: string[];
   }) {
-    return await this.makeRequest('/reports', {
+    return await this.makeRequest('/api/reports', {
       method: 'POST',
       body: JSON.stringify(reportData),
     });
@@ -226,14 +292,14 @@ export class ApiService {
     priority?: 'low' | 'medium' | 'high' | 'urgent';
     description?: string;
   }) {
-    return await this.makeRequest(`/reports/${id}`, {
+    return await this.makeRequest(`/api/reports/${id}`, {
       method: 'PUT',
       body: JSON.stringify(updateData),
     });
   }
 
   async deleteReport(id: number) {
-    return await this.makeRequest(`/reports/${id}`, {
+    return await this.makeRequest(`/api/reports/${id}`, {
       method: 'DELETE',
     });
   }
@@ -244,7 +310,7 @@ export class ApiService {
       limit: limit.toString(),
     });
 
-    return await this.makeRequest(`/reports/user/me?${params}`);
+    return await this.makeRequest(`/api/reports/user/me?${params}`);
   }
 
   // Notifications methods
@@ -255,27 +321,27 @@ export class ApiService {
       unread_only: unreadOnly.toString(),
     });
 
-    return await this.makeRequest(`/notifications?${params}`);
+    return await this.makeRequest(`/api/notifications?${params}`);
   }
 
   async markNotificationAsRead(id: number) {
-    return await this.makeRequest(`/notifications/${id}/read`, {
+    return await this.makeRequest(`/api/notifications/${id}/read`, {
       method: 'PUT',
     });
   }
 
   async markAllNotificationsAsRead() {
-    return await this.makeRequest('/notifications/read-all', {
+    return await this.makeRequest('/api/notifications/read-all', {
       method: 'PUT',
     });
   }
 
   async getUnreadNotificationCount() {
-    return await this.makeRequest('/notifications/unread-count');
+    return await this.makeRequest('/api/notifications/unread-count');
   }
 
   async deleteNotification(id: number) {
-    return await this.makeRequest(`/notifications/${id}`, {
+    return await this.makeRequest(`/api/notifications/${id}`, {
       method: 'DELETE',
     });
   }
@@ -283,7 +349,7 @@ export class ApiService {
   // Road signs methods
   async loadSignCategories() {
     try {
-      return await this.makeRequest('/signs/categories');
+      return await this.makeRequest('/api/signs/categories');
     } catch (error) {
       console.error('Error loading sign categories:', error);
       throw error;
@@ -300,7 +366,7 @@ export class ApiService {
       params.append('search', search);
     }
 
-    return await this.makeRequest(`/signs?${params}`);
+    return await this.makeRequest(`/api/signs?${params}`);
   }
 
   async getSignsByCategory(categoryId: number, page = 1, limit = 20) {
@@ -309,11 +375,11 @@ export class ApiService {
       limit: limit.toString(),
     });
 
-    return await this.makeRequest(`/signs/category/${categoryId}?${params}`);
+    return await this.makeRequest(`/api/signs/category/${categoryId}?${params}`);
   }
 
   async getSign(id: number) {
-    return await this.makeRequest(`/signs/${id}`);
+    return await this.makeRequest(`/api/signs/${id}`);
   }
 
   async searchSigns(query: string, limit = 10) {
@@ -321,7 +387,7 @@ export class ApiService {
       limit: limit.toString(),
     });
 
-    return await this.makeRequest(`/signs/search/${query}?${params}`);
+    return await this.makeRequest(`/api/signs/search/${query}?${params}`);
   }
 
   async getPopularSigns(limit = 10) {
@@ -329,7 +395,7 @@ export class ApiService {
       limit: limit.toString(),
     });
 
-    return await this.makeRequest(`/signs/popular?${params}`);
+    return await this.makeRequest(`/api/signs/popular?${params}`);
   }
 
   // Search functionality
@@ -420,5 +486,92 @@ export class ApiService {
       console.error('Avatar upload failed:', error);
       throw error;
     }
+  }
+
+  async uploadSignImage(imageUri: string) {
+    // Ensure token is loaded
+    await this.loadToken();
+    
+    const formData = new FormData();
+    // Extract filename and type
+    const filename = imageUri.split('/').pop() || `sign.jpg`;
+    const match = /\.([a-zA-Z0-9]+)$/.exec(filename);
+    const type = match ? `image/${match[1]}` : `image`;
+    formData.append('image', {
+      uri: imageUri,
+      name: filename,
+      type,
+    } as any);
+
+    const url = `${API_BASE_URL}/api/signs/upload`;
+    const headers: any = {
+      'Authorization': this.token ? `Bearer ${this.token}` : '',
+      // Remove Content-Type - let fetch set it automatically for FormData
+    };
+    
+    console.log('UploadSignImage - Token:', this.token ? 'Token exists' : 'No token');
+    console.log('UploadSignImage - Headers:', headers);
+    
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: formData,
+      });
+      
+      console.log('UploadSignImage - Response status:', response.status);
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.log('UploadSignImage - Error data:', errorData);
+        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('Sign image upload failed:', error);
+      throw error;
+    }
+  }
+
+  // Category management
+  async createCategory(data: { name: string; description: string }) {
+    return await this.makeRequest('/api/signs/categories', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateCategory(id: number, data: { name?: string; description?: string }) {
+    return await this.makeRequest(`/api/signs/categories/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteCategory(id: number) {
+    return await this.makeRequest(`/api/signs/categories/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Sign management
+  async createSign(data: { name: string; description: string; meaning: string; image_url?: string; category_id: number }) {
+    return await this.makeRequest('/api/signs', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateSign(id: number, data: { name?: string; description?: string; meaning?: string; image_url?: string; category_id?: number }) {
+    return await this.makeRequest(`/api/signs/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteSign(id: number) {
+    return await this.makeRequest(`/api/signs/${id}`, {
+      method: 'DELETE',
+    });
   }
 }

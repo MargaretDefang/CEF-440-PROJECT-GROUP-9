@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   StyleSheet, 
   View, 
@@ -12,12 +12,16 @@ import {
   StatusBar,
   Image,
   Modal,
-  FlatList
+  FlatList,
+  TextInput
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Animatable from 'react-native-animatable';
+import { ApiService, API_BASE_URL } from '../services/ApiService';
+
+const apiService = new ApiService();
 
 // Interfaces
 interface ActionFunction {
@@ -25,16 +29,30 @@ interface ActionFunction {
 }
 
 interface SignCategory {
-  title: string;
+  id: number;
+  name: string;
   description: string;
-  icon: keyof typeof MaterialIcons.glyphMap;
-  gradient: [string, string];
-  signs: string[];
+  icon_url?: string;
+  created_at: string;
 }
 
 interface RoadSign {
+  id: number;
+  category_id: number;
   name: string;
-  category: string;
+  description: string;
+  image_url?: string;
+  meaning: string;
+  traffic_impact: 'none' | 'low' | 'medium' | 'high' | 'severe';
+  speed_limit_affected: boolean;
+  lane_restrictions?: string;
+  category_name: string;
+}
+
+interface SignCategoryWithUI extends SignCategory {
+  icon: keyof typeof MaterialIcons.glyphMap;
+  gradient: [string, string];
+  signCount: number;
 }
 
 const { width, height } = Dimensions.get('window');
@@ -42,8 +60,16 @@ const { width, height } = Dimensions.get('window');
 export default function UserHomeScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState<SignCategory | null>(null);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [selectedCategory, setSelectedCategory] = useState<SignCategoryWithUI | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<RoadSign[]>([]);
+  const [searchModalVisible, setSearchModalVisible] = useState(false);
+  const [categories, setCategories] = useState<SignCategoryWithUI[]>([]);
+  const [categorySigns, setCategorySigns] = useState<RoadSign[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  
   const scaleAnims = useRef([
     new Animated.Value(1),
     new Animated.Value(1),
@@ -53,159 +79,111 @@ export default function UserHomeScreen() {
     new Animated.Value(1)
   ]).current;
 
-  // Comprehensive sign categories with all signs
-  const signCategories: SignCategory[] = [
-    {
-      title: 'Order Signs',
-      icon: 'gavel' as const,
-      gradient: ['#667eea', '#764ba2'] as const,
-      description: 'Regulatory & control signs',
-      signs: [
-        'Stop Sign',
-        'Yield Sign',
-        'Speed Limit Sign',
-        'No Parking Sign',
-        'No Entry Sign',
-        'One Way Sign',
-        'Do Not Enter Sign',
-        'No U-Turn Sign',
-        'No Left Turn Sign',
-        'No Right Turn Sign',
-        'Weight Limit Sign',
-        'Height Limit Sign',
-        'No Trucks Sign',
-        'No Bicycles Sign',
-        'No Pedestrian Crossing Sign',
-        'Lane Use Control Signs',
-        'Mandatory Direction Signs',
-        'Traffic Signal Signs',
-        'Pedestrian Signal Signs'
-      ] as const
-    },
-    {
-      title: 'Danger Signs',
-      icon: 'warning' as const,
-      gradient: ['#ff6b6b', '#feca57'] as const,
-      description: 'Warning & hazard signs',
-      signs: [
-        'Curve Ahead Sign',
-        'Sharp Turn Sign',
-        'Intersection Ahead Sign',
-        'Pedestrian Crossing Sign',
-        'School Zone Sign',
-        'Children Playing Sign',
-        'Deer Crossing Sign',
-        'Animal Crossing Sign',
-        'Roadwork Ahead Sign',
-        'Construction Zone Ahead',
-        'Lane Reduction Sign',
-        'Merge Sign',
-        'Slippery Road Sign',
-        'Falling Rocks Sign',
-        'Bridge Ahead Sign',
-        'Signal Ahead Sign',
-        'Uneven Pavement Sign',
-        'Steep Grade Sign',
-        'Two-Way Traffic Sign',
-        'Divided Highway Sign'
-      ] as const
-    },
-    {
-      title: 'Information Signs',
-      icon: 'info' as const,
-      gradient: ['#48dbfb', '#0abde3'] as const,
-      description: 'Service & facility signs',
-      signs: [
-        'Food Service Sign',
-        'Fuel/Gas Station Sign',
-        'Lodging/Hotel Sign',
-        'Rest Stop Sign',
-        'Hospital Sign',
-        'Emergency Phone Sign',
-        'Information Center Sign',
-        'Tourist Attraction Sign',
-        'Parking Sign',
-        'Recreational Area Sign',
-        'Scenic Route Sign',
-        'Historical Marker Sign',
-        'Camping Sign',
-        'Picnic Area Sign',
-        'Restroom Sign'
-      ] as const
-    },
-    {
-      title: 'Location Signs',
-      icon: 'location-on' as const,
-      gradient: ['#1dd1a1', '#10ac84'] as const,
-      description: 'Place identification signs',
-      signs: [
-        'City/Town Name Sign',
-        'Street Name Sign',
-        'Highway Marker Sign',
-        'Interstate Sign',
-        'State Route Sign',
-        'County Route Sign',
-        'Mile Marker Sign',
-        'Kilometer Post Sign',
-        'Border Crossing Sign',
-        'State Line Sign',
-        'County Line Sign',
-        'Welcome Sign',
-        'Business District Sign'
-      ] as const
-    },
-    {
-      title: 'Directional Signs',
-      icon: 'navigation' as const,
-      gradient: ['#feca57', '#ff9ff3'] as const,
-      description: 'Route & navigation signs',
-      signs: [
-        'Highway Direction Sign',
-        'Exit Sign',
-        'Next Exit Sign',
-        'Detour Sign',
-        'Lane Designation Sign',
-        'Left Lane Sign',
-        'Right Lane Sign',
-        'Center Lane Sign',
-        'Intersection Sign',
-        'Merge Ahead Sign',
-        'Guide Sign',
-        'Distance Sign',
-        'Junction Sign',
-        'Route Confirmation Sign',
-        'Advance Guide Sign'
-      ] as const
-    },
-    {
-      title: 'Construction Signs',
-      icon: 'construction' as const,
-      gradient: ['#ff9500', '#ff5722'] as const,
-      description: 'Work zone & construction signs',
-      signs: [
-        'Road Work Ahead',
-        'Construction Zone',
-        'Workers Present',
-        'Flagging Operations',
-        'Lane Closed Ahead',
-        'Detour',
-        'End Construction',
-        'Reduced Speed Ahead',
-        'Fresh Oil',
-        'Loose Gravel',
-        'Bump',
-        'Dip',
-        'Road Closed',
-        'Local Traffic Only',
-        'Pilot Car Follow Me',
-        'One Lane Road Ahead',
-        'Be Prepared to Stop',
-        'Survey Crew',
-        'Mowing Operations',
-        'Maintenance Operations'
-      ] as const
+  // Icon mapping for categories
+  const getCategoryIcon = (categoryName: string): keyof typeof MaterialIcons.glyphMap => {
+    const iconMap: { [key: string]: keyof typeof MaterialIcons.glyphMap } = {
+      'Warning Signs': 'warning',
+      'Regulatory Signs': 'gavel',
+      'Informational Signs': 'info',
+      'Construction Signs': 'construction',
+      'Order Signs': 'gavel',
+      'Danger Signs': 'warning',
+      'Information Signs': 'info',
+      'Location Signs': 'location-on',
+      'Directional Signs': 'navigation'
+    };
+    return iconMap[categoryName] || 'traffic';
+  };
+
+  // Gradient mapping for categories
+  const getCategoryGradient = (categoryName: string): [string, string] => {
+    const gradientMap: { [key: string]: [string, string] } = {
+      'Warning Signs': ['#ff9500', '#ff5722'],
+      'Regulatory Signs': ['#667eea', '#764ba2'],
+      'Informational Signs': ['#48dbfb', '#0abde3'],
+      'Construction Signs': ['#ff9500', '#ff5722'],
+      'Order Signs': ['#667eea', '#764ba2'],
+      'Danger Signs': ['#ff6b6b', '#feca57'],
+      'Information Signs': ['#48dbfb', '#0abde3'],
+      'Location Signs': ['#1dd1a1', '#10ac84'],
+      'Directional Signs': ['#feca57', '#ff9ff3']
+    };
+    return gradientMap[categoryName] || ['#667eea', '#764ba2'];
+  };
+
+  // Load sign categories from backend
+  const loadSignCategories = async () => {
+    try {
+      setError(null);
+      const categoriesData = await apiService.loadSignCategories();
+      
+      // Transform categories to include UI properties
+      const categoriesWithUI: SignCategoryWithUI[] = await Promise.all(
+        categoriesData.map(async (category: SignCategory) => {
+          // Get sign count for each category
+          const signsData = await apiService.getSignsByCategory(category.id, 1, 1);
+          return {
+            ...category,
+            icon: getCategoryIcon(category.name),
+            gradient: getCategoryGradient(category.name),
+            signCount: signsData.pagination.total_items
+          };
+        })
+      );
+      
+      setCategories(categoriesWithUI);
+    } catch (error) {
+      console.error('Error loading sign categories:', error);
+      setError('Failed to load sign categories');
     }
-  ] as const;
+  };
+
+  // Load signs for a specific category
+  const loadCategorySigns = async (categoryId: number) => {
+    try {
+      const signsData = await apiService.getSignsByCategory(categoryId, 1, 100);
+      setCategorySigns(signsData.signs);
+    } catch (error) {
+      console.error('Error loading category signs:', error);
+      Alert.alert('Error', 'Failed to load signs for this category');
+    }
+  };
+
+  // Search signs
+  const searchSigns = async (query: string) => {
+    if (!query.trim()) {
+      setSearchResults([]);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const results = await apiService.searchSigns(query, 20);
+      setSearchResults(results);
+    } catch (error) {
+      console.error('Error searching signs:', error);
+      Alert.alert('Error', 'Failed to search signs');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Initialize data
+  useEffect(() => {
+    const initializeData = async () => {
+      try {
+        setInitialLoading(true);
+        await loadSignCategories();
+      } catch (error) {
+        console.error('Error initializing data:', error);
+        setError('Failed to load initial data');
+      } finally {
+        setInitialLoading(false);
+      }
+    };
+
+    initializeData();
+  }, []);
 
   // Error handling wrapper
   const handleAction = async (action: () => Promise<void>, actionName: string) => {
@@ -242,15 +220,16 @@ export default function UserHomeScreen() {
     ]).start();
   };
 
-  const handleSignPress = async (category: SignCategory, index: number) => {
+  const handleSignPress = async (category: SignCategoryWithUI, index: number) => {
     animatePress(index);
     await handleAction(
       async () => {
         await new Promise(resolve => setTimeout(resolve, 300));
         setSelectedCategory(category);
+        await loadCategorySigns(category.id);
         setModalVisible(true);
       },
-      `Open ${category.title}`
+      `Open ${category.name}`
     );
   };
 
@@ -259,15 +238,119 @@ export default function UserHomeScreen() {
     setSelectedCategory(null);
   };
 
-  const renderSignItem = ({ item }: { item: string }) => (
+  const handleSearchPress = () => {
+    setSearchModalVisible(true);
+  };
+
+  const closeSearchModal = () => {
+    setSearchModalVisible(false);
+    setSearchQuery('');
+    setSearchResults([]);
+  };
+
+  const handleSearchSubmit = () => {
+    if (searchQuery.trim()) {
+      searchSigns(searchQuery);
+    }
+  };
+
+  const renderSignItem = ({ item }: { item: RoadSign }) => (
     <TouchableOpacity style={styles.signItem}>
       <View style={styles.signItemIcon}>
-        <MaterialIcons name="traffic" size={20} color="#667eea" />
+        {item.image_url ? (
+          <Image
+            source={{ uri: API_BASE_URL + item.image_url }}
+            style={styles.signImage}
+            resizeMode="contain"
+          />
+        ) : (
+          <MaterialIcons name="traffic" size={20} color="#667eea" />
+        )}
       </View>
-      <Text style={styles.signItemText}>{item}</Text>
+      <View style={styles.signItemContent}>
+        <Text style={styles.signItemText}>{item.name}</Text>
+        <Text style={styles.signItemDescription}>{item.description}</Text>
+        <Text style={styles.signItemMeaning}>Meaning: {item.meaning}</Text>
+      </View>
       <MaterialIcons name="chevron-right" size={20} color="#999" />
     </TouchableOpacity>
   );
+
+  const renderSearchResult = ({ item }: { item: RoadSign }) => (
+    <TouchableOpacity style={styles.searchResultItem}>
+      <View style={styles.searchResultIcon}>
+        {item.image_url ? (
+          <Image
+            source={{ uri: API_BASE_URL + item.image_url }}
+            style={styles.signImage}
+            resizeMode="contain"
+          />
+        ) : (
+          <MaterialIcons name="traffic" size={20} color="#667eea" />
+        )}
+      </View>
+      <View style={styles.searchResultContent}>
+        <Text style={styles.searchResultText}>{item.name}</Text>
+        <Text style={styles.searchResultCategory}>{item.category_name}</Text>
+        <Text style={styles.searchResultDescription}>{item.description}</Text>
+      </View>
+    </TouchableOpacity>
+  );
+
+  // Show loading screen if initial data is loading
+  if (initialLoading) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar barStyle="light-content" backgroundColor="#667eea" />
+        <LinearGradient
+          colors={['#667eea', '#764ba2', '#f093fb']}
+          style={styles.gradientContainer}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+        >
+          <View style={styles.loadingContainer}>
+            <Animatable.View 
+              animation="rotate" 
+              iterationCount="infinite" 
+              duration={1000}
+            >
+              <MaterialIcons name="refresh" size={48} color="#feca57" />
+            </Animatable.View>
+            <Text style={styles.loadingText}>Loading Road Signs...</Text>
+          </View>
+        </LinearGradient>
+      </SafeAreaView>
+    );
+  }
+
+  // Show error screen if there's an error
+  if (error) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar barStyle="light-content" backgroundColor="#667eea" />
+        <LinearGradient
+          colors={['#667eea', '#764ba2', '#f093fb']}
+          style={styles.gradientContainer}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+        >
+          <View style={styles.errorContainer}>
+            <MaterialIcons name="error" size={48} color="#ff6b6b" />
+            <Text style={styles.errorText}>{error}</Text>
+            <TouchableOpacity 
+              style={styles.retryButton}
+              onPress={() => {
+                setError(null);
+                loadSignCategories();
+              }}
+            >
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        </LinearGradient>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -354,12 +437,7 @@ export default function UserHomeScreen() {
         >
           <TouchableOpacity 
             style={styles.searchGlass}
-            onPress={() => handleAction(
-              async () => {
-                console.log('Opening search...');
-              },
-              'Open search'
-            )}
+            onPress={handleSearchPress}
           >
             <View style={styles.searchContent}>
               <MaterialIcons name="search" size={20} color="rgba(255, 255, 255, 0.8)" />
@@ -386,13 +464,13 @@ export default function UserHomeScreen() {
           >
             <Text style={styles.sectionTitle}>Sign Categories</Text>
             <Text style={styles.sectionSubtitle}>
-              {signCategories.reduce((total, category) => total + category.signs.length, 0)} signs across {signCategories.length} categories
+              {categories.reduce((total, category) => total + category.signCount, 0)} signs across {categories.length} categories
             </Text>
             
             <View style={styles.signsContainer}>
-              {signCategories.map((category, index) => (
+              {categories.map((category, index) => (
                 <Animated.View
-                  key={index}
+                  key={category.id}
                   style={[
                     styles.signCardWrapper,
                     { transform: [{ scale: scaleAnims[index] }] }
@@ -420,9 +498,9 @@ export default function UserHomeScreen() {
                         </View>
                       </View>
                       <View style={styles.signContent}>
-                        <Text style={styles.signTitle}>{category.title}</Text>
+                        <Text style={styles.signTitle}>{category.name}</Text>
                         <Text style={styles.signDescription}>{category.description}</Text>
-                        <Text style={styles.signCount}>{category.signs.length} signs</Text>
+                        <Text style={styles.signCount}>{category.signCount} signs</Text>
                       </View>
                       <View style={styles.signArrow}>
                         <MaterialIcons name="arrow-forward" size={20} color="rgba(255, 255, 255, 0.9)" />
@@ -496,25 +574,106 @@ export default function UserHomeScreen() {
                       size={24} 
                       color="white" 
                     />
-                    <Text style={styles.modalTitle}>{selectedCategory?.title}</Text>
+                    <Text style={styles.modalTitle}>{selectedCategory?.name}</Text>
                   </View>
                   <TouchableOpacity onPress={closeModal} style={styles.closeButton}>
                     <MaterialIcons name="close" size={24} color="white" />
                   </TouchableOpacity>
                 </View>
                 <Text style={styles.modalSubtitle}>
-                  {selectedCategory?.signs.length} signs in this category
+                  {categorySigns.length} signs in this category
                 </Text>
               </LinearGradient>
               
               <FlatList
-                data={selectedCategory?.signs || []}
+                data={categorySigns}
                 renderItem={renderSignItem}
-                keyExtractor={(item, index) => `${item}-${index}`}
+                keyExtractor={(item) => item.id.toString()}
                 style={styles.signsList}
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={styles.signsListContent}
               />
+            </View>
+          </View>
+        </Modal>
+
+        {/* Search Modal */}
+        <Modal
+          animationType="slide"
+          transparent={true}
+          visible={searchModalVisible}
+          onRequestClose={closeSearchModal}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContainer}>
+              <LinearGradient
+                colors={['#667eea', '#764ba2']}
+                style={styles.modalHeader}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              >
+                <View style={styles.modalHeaderContent}>
+                  <View style={styles.modalTitleContainer}>
+                    <MaterialIcons name="search" size={24} color="white" />
+                    <Text style={styles.modalTitle}>Search Signs</Text>
+                  </View>
+                  <TouchableOpacity onPress={closeSearchModal} style={styles.closeButton}>
+                    <MaterialIcons name="close" size={24} color="white" />
+                  </TouchableOpacity>
+                </View>
+              </LinearGradient>
+              
+              <View style={styles.searchModalContent}>
+                <View style={styles.searchInputContainer}>
+                  <TextInput
+                    style={styles.searchInput}
+                    placeholder="Enter sign name or description..."
+                    placeholderTextColor="#999"
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                    onSubmitEditing={handleSearchSubmit}
+                    returnKeyType="search"
+                  />
+                  <TouchableOpacity 
+                    style={styles.searchButton}
+                    onPress={handleSearchSubmit}
+                    disabled={loading}
+                  >
+                    <MaterialIcons name="search" size={20} color="white" />
+                  </TouchableOpacity>
+                </View>
+                
+                {loading && (
+                  <View style={styles.searchLoading}>
+                    <Animatable.View 
+                      animation="rotate" 
+                      iterationCount="infinite" 
+                      duration={1000}
+                    >
+                      <MaterialIcons name="refresh" size={24} color="#667eea" />
+                    </Animatable.View>
+                    <Text style={styles.searchLoadingText}>Searching...</Text>
+                  </View>
+                )}
+                
+                <FlatList
+                  data={searchResults}
+                  renderItem={renderSearchResult}
+                  keyExtractor={(item) => item.id.toString()}
+                  style={styles.searchResultsList}
+                  showsVerticalScrollIndicator={false}
+                  contentContainerStyle={styles.searchResultsContent}
+                  ListEmptyComponent={
+                    searchQuery && !loading ? (
+                      <View style={styles.noResults}>
+                        <MaterialIcons name="search-off" size={48} color="#ccc" />
+                        <Text style={styles.noResultsText}>No signs found</Text>
+                        <Text style={styles.noResultsSubtext}>Try a different search term</Text>
+                      </View>
+                    ) : null
+                  }
+                />
+              </View>
             </View>
           </View>
         </Modal>
@@ -923,11 +1082,24 @@ const styles = StyleSheet.create({
     padding: 8,
     marginRight: 12,
   },
+  signItemContent: {
+    flex: 1,
+  },
   signItemText: {
     flex: 1,
     fontSize: 16,
     fontWeight: '600',
     color: '#333',
+  },
+  signItemDescription: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 4,
+  },
+  signItemMeaning: {
+    fontSize: 11,
+    color: '#999',
+    fontStyle: 'italic',
   },
 
   // Loading Overlay
@@ -954,6 +1126,150 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     marginTop: 12,
     fontWeight: '600',
+  },
+
+  // Loading Container for initial loading
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  // Error Container
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+  },
+  errorText: {
+    fontSize: 18,
+    color: '#ffffff',
+    textAlign: 'center',
+    marginTop: 16,
+    marginBottom: 24,
+    fontWeight: '600',
+  },
+  retryButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 12,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  retryButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+
+  // Search Modal Styles
+  searchModalContent: {
+    flex: 1,
+    padding: 20,
+  },
+  searchInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    marginBottom: 20,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 16,
+    color: '#ffffff',
+    paddingVertical: 12,
+  },
+  searchButton: {
+    backgroundColor: '#667eea',
+    borderRadius: 8,
+    padding: 8,
+    marginLeft: 8,
+  },
+  searchLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 20,
+  },
+  searchLoadingText: {
+    fontSize: 16,
+    color: '#667eea',
+    marginLeft: 12,
+    fontWeight: '600',
+  },
+  searchResultsList: {
+    flex: 1,
+  },
+  searchResultsContent: {
+    paddingBottom: 20,
+  },
+  searchResultItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  searchResultIcon: {
+    backgroundColor: '#e3f2fd',
+    borderRadius: 20,
+    padding: 8,
+    marginRight: 12,
+  },
+  searchResultContent: {
+    flex: 1,
+  },
+  searchResultText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 4,
+  },
+  searchResultCategory: {
+    fontSize: 12,
+    color: '#667eea',
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  searchResultDescription: {
+    fontSize: 12,
+    color: '#666',
+  },
+  noResults: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  noResultsText: {
+    fontSize: 18,
+    color: '#666',
+    marginTop: 16,
+    fontWeight: '600',
+  },
+  noResultsSubtext: {
+    fontSize: 14,
+    color: '#999',
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  signImage: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: '#fff',
   },
 
 });

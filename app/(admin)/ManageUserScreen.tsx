@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   StyleSheet, 
   View, 
@@ -19,18 +19,21 @@ import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Animatable from 'react-native-animatable';
+import { ApiService, API_BASE_URL } from '../services/ApiService';
 
 // Interfaces
 interface User {
-  id: string;
-  name: string;
+  id: number;
+  first_name: string;
+  last_name: string;
   email: string;
-  role: 'admin' | 'moderator' | 'user';
+  user_type: 'admin' | 'moderator' | 'user';
   status: 'active' | 'suspended' | 'pending';
-  joinDate: string;
-  lastActive: string;
-  reportsSubmitted: number;
-  avatar?: string;
+  created_at: string;
+  updated_at: string;
+  reports_count: number;
+  avatar_url?: string;
+  phone?: string;
 }
 
 const { width, height } = Dimensions.get('window');
@@ -43,157 +46,100 @@ export default function ManageUsersScreen() {
   const [userDetailsVisible, setUserDetailsVisible] = useState(false);
   const [filtersVisible, setFiltersVisible] = useState(false);
   const [bulkSelectMode, setBulkSelectMode] = useState(false);
-  const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
+  const [selectedUsers, setSelectedUsers] = useState<number[]>([]);
   const [roleFilter, setRoleFilter] = useState<'all' | 'admin' | 'moderator' | 'user'>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'suspended' | 'pending'>('all');
   
-  // Mock users data
-  const [users, setUsers] = useState<User[]>([
-    {
-      id: '1',
-      name: 'Admin User',
-      email: 'admin@roadbro.com',
-      role: 'admin',
-      status: 'active',
-      joinDate: '2024-01-15',
-      lastActive: '2025-06-20',
-      reportsSubmitted: 42,
-      avatar: 'https://randomuser.me/api/portraits/men/1.jpg'
-    },
-    {
-      id: '2',
-      name: 'Moderator One',
-      email: 'mod1@roadbro.com',
-      role: 'moderator',
-      status: 'active',
-      joinDate: '2024-03-10',
-      lastActive: '2025-06-19',
-      reportsSubmitted: 28,
-      avatar: 'https://randomuser.me/api/portraits/women/2.jpg'
-    },
-    {
-      id: '3',
-      name: 'Regular User',
-      email: 'user1@roadbro.com',
-      role: 'user',
-      status: 'active',
-      joinDate: '2024-05-22',
-      lastActive: '2025-06-18',
-      reportsSubmitted: 15,
-      avatar: 'https://randomuser.me/api/portraits/men/3.jpg'
-    },
-    {
-      id: '4',
-      name: 'Suspended User',
-      email: 'suspended@roadbro.com',
-      role: 'user',
-      status: 'suspended',
-      joinDate: '2024-02-05',
-      lastActive: '2025-05-30',
-      reportsSubmitted: 5,
-      avatar: 'https://randomuser.me/api/portraits/women/4.jpg'
-    },
-    {
-      id: '5',
-      name: 'New User',
-      email: 'pending@roadbro.com',
-      role: 'user',
-      status: 'pending',
-      joinDate: '2025-06-10',
-      lastActive: '2025-06-10',
-      reportsSubmitted: 0,
-      avatar: 'https://randomuser.me/api/portraits/men/5.jpg'
-    },
-    {
-      id: '6',
-      name: 'Power User',
-      email: 'poweruser@roadbro.com',
-      role: 'user',
-      status: 'active',
-      joinDate: '2024-04-18',
-      lastActive: '2025-06-17',
-      reportsSubmitted: 36,
-      avatar: 'https://randomuser.me/api/portraits/women/6.jpg'
-    },
-    {
-      id: '7',
-      name: 'Moderator Two',
-      email: 'mod2@roadbro.com',
-      role: 'moderator',
-      status: 'active',
-      joinDate: '2024-06-01',
-      lastActive: '2025-06-16',
-      reportsSubmitted: 19,
-      avatar: 'https://randomuser.me/api/portraits/men/7.jpg'
-    },
-    {
-      id: '8',
-      name: 'Inactive User',
-      email: 'inactive@roadbro.com',
-      role: 'user',
-      status: 'suspended',
-      joinDate: '2024-07-15',
-      lastActive: '2025-04-22',
-      reportsSubmitted: 8,
-      avatar: 'https://randomuser.me/api/portraits/women/8.jpg'
-    }
-  ]);
+  // Real users data
+  const [users, setUsers] = useState<User[]>([]);
+  const [userStats, setUserStats] = useState<any>({});
+  const [pagination, setPagination] = useState<any>({});
+  const [currentPage, setCurrentPage] = useState(1);
+  
+  const apiService = new ApiService();
 
-  // Filter and search users
-  const getFilteredUsers = (): User[] => {
-    let filtered = users;
+  // Fetch users on mount and when filters change
+  useEffect(() => {
+    const initializeData = async () => {
+      // Small delay to ensure token is loaded
+      await new Promise(resolve => setTimeout(resolve, 100));
+      console.log('ManageUserScreen - Initializing data...');
+      await fetchUsers();
+      await fetchUserStats();
+    };
     
-    // Filter by role
-    if (roleFilter !== 'all') {
-      filtered = filtered.filter(user => user.role === roleFilter);
+    initializeData();
+  }, [currentPage, roleFilter, statusFilter, searchQuery]);
+
+  const fetchUsers = async () => {
+    try {
+      setLoading(true);
+      const result = await apiService.getUsers(currentPage, 20, searchQuery, roleFilter, statusFilter);
+      setUsers(result.users);
+      setPagination(result.pagination);
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      Alert.alert('Error', 'Failed to load users');
+    } finally {
+      setLoading(false);
     }
-    
-    // Filter by status
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter(user => user.status === statusFilter);
+  };
+
+  const fetchUserStats = async () => {
+    try {
+      console.log('ManageUserScreen - Fetching user stats...');
+      const stats = await apiService.getUserStats();
+      console.log('ManageUserScreen - User stats received:', stats);
+      setUserStats(stats);
+    } catch (error) {
+      console.error('Error fetching user stats:', error);
     }
-    
-    // Search filter
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(user => 
-        user.name.toLowerCase().includes(query) ||
-        user.email.toLowerCase().includes(query)
-      );
-    }
-    
-    return filtered;
   };
 
   // Handle user actions
-  const handleUserAction = (userId: string, action: 'activate' | 'suspend' | 'promote' | 'demote') => {
-    setUsers(prev => prev.map(user => {
-      if (user.id !== userId) return user;
+  const handleUserAction = async (userId: number, action: 'activate' | 'suspend' | 'promote' | 'demote') => {
+    try {
+      setLoading(true);
+      
+      let updateData: any = {};
       
       switch (action) {
         case 'activate':
-          return { ...user, status: 'active' };
+          updateData.status = 'active';
+          break;
         case 'suspend':
-          return { ...user, status: 'suspended' };
+          updateData.status = 'suspended';
+          break;
         case 'promote':
-          return { ...user, role: user.role === 'user' ? 'moderator' : 'admin' };
+          updateData.user_type = 'moderator';
+          break;
         case 'demote':
-          return { ...user, role: user.role === 'admin' ? 'moderator' : 'user' };
-        default:
-          return user;
+          updateData.user_type = 'user';
+          break;
       }
-    }));
-    
-    Alert.alert(
-      'Success', 
-      `User ${action === 'activate' ? 'activated' : 
-        action === 'suspend' ? 'suspended' : 
-        action === 'promote' ? 'promoted' : 'demoted'} successfully!`
-    );
+      
+      await apiService.updateUser(userId, updateData);
+      
+      // Refresh users and stats
+      await fetchUsers();
+      await fetchUserStats();
+      
+      Alert.alert(
+        'Success', 
+        `User ${action === 'activate' ? 'activated' : 
+          action === 'suspend' ? 'suspended' : 
+          action === 'promote' ? 'promoted' : 'demoted'} successfully!`
+      );
+    } catch (error) {
+      console.error('Error updating user:', error);
+      Alert.alert('Error', 'Failed to update user');
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Bulk actions
-  const handleBulkAction = (action: 'activate' | 'suspend') => {
+  const handleBulkAction = async (action: 'activate' | 'suspend') => {
     if (selectedUsers.length === 0) {
       Alert.alert('Error', 'Please select users first');
       return;
@@ -206,15 +152,24 @@ export default function ManageUsersScreen() {
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Confirm',
-          onPress: () => {
-            setUsers(prev => prev.map(user => 
-              selectedUsers.includes(user.id)
-                ? { ...user, status: action === 'activate' ? 'active' : 'suspended' }
-                : user
-            ));
-            setSelectedUsers([]);
-            setBulkSelectMode(false);
-            Alert.alert('Success', `${selectedUsers.length} user(s) ${action === 'activate' ? 'activated' : 'suspended'} successfully!`);
+          onPress: async () => {
+            try {
+              setLoading(true);
+              await apiService.bulkUpdateUsers(selectedUsers, action);
+              
+              // Refresh users and stats
+              await fetchUsers();
+              await fetchUserStats();
+              
+              setSelectedUsers([]);
+              setBulkSelectMode(false);
+              Alert.alert('Success', `${selectedUsers.length} user(s) ${action === 'activate' ? 'activated' : 'suspended'} successfully!`);
+            } catch (error) {
+              console.error('Error bulk updating users:', error);
+              Alert.alert('Error', 'Failed to update users');
+            } finally {
+              setLoading(false);
+            }
           }
         }
       ]
@@ -222,7 +177,7 @@ export default function ManageUsersScreen() {
   };
 
   // Toggle user selection
-  const toggleUserSelection = (userId: string) => {
+  const toggleUserSelection = (userId: number) => {
     setSelectedUsers(prev => 
       prev.includes(userId)
         ? prev.filter(id => id !== userId)
@@ -256,6 +211,23 @@ export default function ManageUsersScreen() {
       case 'user': return 'person';
       default: return 'person';
     }
+  };
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString();
+  };
+
+  const getUserFullName = (user: User) => {
+    return `${user.first_name} ${user.last_name}`;
+  };
+
+  const getUserAvatarUrl = (user: User) => {
+    if (user.avatar_url) {
+      return user.avatar_url.startsWith('http') 
+        ? user.avatar_url 
+        : `${API_BASE_URL}${user.avatar_url}`;
+    }
+    return null;
   };
 
   // Render functions
@@ -294,8 +266,8 @@ export default function ManageUsersScreen() {
           </TouchableOpacity>
         )}
         
-        {user.avatar ? (
-          <Image source={{ uri: user.avatar }} style={styles.userAvatar} />
+        {user.avatar_url ? (
+          <Image source={{ uri: getUserAvatarUrl(user) }} style={styles.userAvatar} />
         ) : (
           <View style={[styles.userAvatar, styles.userAvatarPlaceholder]}>
             <MaterialIcons name="person" size={24} color="white" />
@@ -304,11 +276,11 @@ export default function ManageUsersScreen() {
         
         <View style={styles.userDetails}>
           <View style={styles.userHeader}>
-            <Text style={styles.userName} numberOfLines={1}>{user.name}</Text>
+            <Text style={styles.userName} numberOfLines={1}>{getUserFullName(user)}</Text>
             <View style={styles.badgeContainer}>
-              <View style={[styles.roleBadge, { backgroundColor: getRoleColor(user.role) }]}>
-                <MaterialIcons name={getRoleIcon(user.role)} size={12} color="white" />
-                <Text style={styles.badgeText}>{user.role.toUpperCase()}</Text>
+              <View style={[styles.roleBadge, { backgroundColor: getRoleColor(user.user_type) }]}>
+                <MaterialIcons name={getRoleIcon(user.user_type)} size={12} color="white" />
+                <Text style={styles.badgeText}>{user.user_type.toUpperCase()}</Text>
               </View>
             </View>
           </View>
@@ -318,11 +290,11 @@ export default function ManageUsersScreen() {
           <View style={styles.userMeta}>
             <View style={styles.metaItem}>
               <MaterialIcons name="date-range" size={12} color="#666" />
-              <Text style={styles.metaText}>Joined: {user.joinDate}</Text>
+              <Text style={styles.metaText}>Joined: {formatDate(user.created_at)}</Text>
             </View>
             <View style={styles.metaItem}>
               <MaterialIcons name="report" size={12} color="#666" />
-              <Text style={styles.metaText}>Reports: {user.reportsSubmitted}</Text>
+              <Text style={styles.metaText}>Reports: {user.reports_count}</Text>
             </View>
           </View>
 
@@ -334,10 +306,11 @@ export default function ManageUsersScreen() {
     </Animatable.View>
   );
 
-  const filteredUsers = getFilteredUsers();
-  const activeCount = users.filter(u => u.status === 'active').length;
-  const suspendedCount = users.filter(u => u.status === 'suspended').length;
-  const pendingCount = users.filter(u => u.status === 'pending').length;
+  const filteredUsers = users;
+  const activeCount = userStats.active_users || 0;
+  const suspendedCount = userStats.suspended_users || 0;
+  const pendingCount = userStats.pending_users || 0;
+  const totalCount = userStats.total_users || 0;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -412,7 +385,7 @@ export default function ManageUsersScreen() {
         >
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.statsScroll}>
             <View style={styles.statCard}>
-              <Text style={styles.statNumber}>{users.length}</Text>
+              <Text style={styles.statNumber}>{totalCount}</Text>
               <Text style={styles.statLabel}>Total Users</Text>
             </View>
             <View style={styles.statCard}>
@@ -476,7 +449,7 @@ export default function ManageUsersScreen() {
           <FlatList
             data={filteredUsers}
             renderItem={renderUserItem}
-            keyExtractor={(item) => item.id}
+            keyExtractor={(item) => item.id.toString()}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.usersListContent}
           />
@@ -556,7 +529,7 @@ export default function ManageUsersScreen() {
               {selectedUser && (
                 <>
                   <LinearGradient
-                    colors={[getRoleColor(selectedUser.role), getRoleColor(selectedUser.role) + '80']}
+                    colors={[getRoleColor(selectedUser.user_type), getRoleColor(selectedUser.user_type) + '80']}
                     style={styles.detailsHeader}
                   >
                     <TouchableOpacity 
@@ -566,15 +539,11 @@ export default function ManageUsersScreen() {
                       <MaterialIcons name="close" size={24} color="white" />
                     </TouchableOpacity>
                     
-                    {selectedUser.avatar ? (
-                      <Image source={{ uri: selectedUser.avatar }} style={styles.detailsAvatar} />
-                    ) : (
-                      <View style={[styles.detailsAvatar, styles.detailsAvatarPlaceholder]}>
-                        <MaterialIcons name="person" size={36} color="white" />
-                      </View>
+                    {getUserAvatarUrl(selectedUser) && (
+                      <Image source={{ uri: getUserAvatarUrl(selectedUser) }} style={styles.detailsAvatar} />
                     )}
                     
-                    <Text style={styles.detailsTitle}>{selectedUser.name}</Text>
+                    <Text style={styles.detailsTitle}>{getUserFullName(selectedUser)}</Text>
                     <Text style={styles.detailsSubtitle}>{selectedUser.email}</Text>
                     
                     <View style={styles.detailsBadges}>
@@ -582,8 +551,8 @@ export default function ManageUsersScreen() {
                         <Text style={styles.detailsBadgeText}>{selectedUser.status.toUpperCase()}</Text>
                       </View>
                       <View style={[styles.detailsRoleBadge, { backgroundColor: 'rgba(0, 0, 0, 0.2)' }]}>
-                        <MaterialIcons name={getRoleIcon(selectedUser.role)} size={14} color="white" />
-                        <Text style={styles.detailsBadgeText}>{selectedUser.role.toUpperCase()}</Text>
+                        <MaterialIcons name={getRoleIcon(selectedUser.user_type)} size={14} color="white" />
+                        <Text style={styles.detailsBadgeText}>{selectedUser.user_type.toUpperCase()}</Text>
                       </View>
                     </View>
                   </LinearGradient>
@@ -596,17 +565,17 @@ export default function ManageUsersScreen() {
                         <View style={styles.detailsInfoItem}>
                           <MaterialIcons name="date-range" size={18} color="#666" />
                           <Text style={styles.detailsInfoLabel}>Joined</Text>
-                          <Text style={styles.detailsInfoValue}>{selectedUser.joinDate}</Text>
+                          <Text style={styles.detailsInfoValue}>{formatDate(selectedUser.created_at)}</Text>
                         </View>
                         <View style={styles.detailsInfoItem}>
                           <MaterialIcons name="update" size={18} color="#666" />
                           <Text style={styles.detailsInfoLabel}>Last Active</Text>
-                          <Text style={styles.detailsInfoValue}>{selectedUser.lastActive}</Text>
+                          <Text style={styles.detailsInfoValue}>{formatDate(selectedUser.updated_at)}</Text>
                         </View>
                         <View style={styles.detailsInfoItem}>
                           <MaterialIcons name="report" size={18} color="#666" />
                           <Text style={styles.detailsInfoLabel}>Reports Submitted</Text>
-                          <Text style={styles.detailsInfoValue}>{selectedUser.reportsSubmitted}</Text>
+                          <Text style={styles.detailsInfoValue}>{selectedUser.reports_count}</Text>
                         </View>
                       </View>
                     </View>
@@ -638,7 +607,7 @@ export default function ManageUsersScreen() {
                         </TouchableOpacity>
                       )}
                       
-                      {selectedUser.role !== 'admin' && (
+                      {selectedUser.user_type !== 'admin' && (
                         <TouchableOpacity 
                           style={[styles.detailsActionButton, styles.detailsPromoteButton]}
                           onPress={() => {
@@ -648,12 +617,12 @@ export default function ManageUsersScreen() {
                         >
                           <MaterialIcons name="arrow-upward" size={20} color="white" />
                           <Text style={styles.detailsActionText}>
-                            {selectedUser.role === 'user' ? 'Promote to Moderator' : 'Promote to Admin'}
+                            {selectedUser.user_type === 'user' ? 'Promote to Moderator' : 'Promote to Admin'}
                           </Text>
                         </TouchableOpacity>
                       )}
                       
-                      {selectedUser.role !== 'user' && (
+                      {selectedUser.user_type !== 'user' && (
                         <TouchableOpacity 
                           style={[styles.detailsActionButton, styles.detailsDemoteButton]}
                           onPress={() => {
@@ -663,7 +632,7 @@ export default function ManageUsersScreen() {
                         >
                           <MaterialIcons name="arrow-downward" size={20} color="white" />
                           <Text style={styles.detailsActionText}>
-                            {selectedUser.role === 'admin' ? 'Demote to Moderator' : 'Demote to User'}
+                            {selectedUser.user_type === 'admin' ? 'Demote to Moderator' : 'Demote to User'}
                           </Text>
                         </TouchableOpacity>
                       )}

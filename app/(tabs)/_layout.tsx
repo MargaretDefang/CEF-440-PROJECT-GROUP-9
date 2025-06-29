@@ -4,8 +4,25 @@ import { Tabs, Redirect } from 'expo-router'
 import { icons } from '../../assets/constants/icons'
 import { TabIcon } from './components/TabIcon'
 import { BlurView } from 'expo-blur'
+import { useAuth } from '../contexts/AuthContext'
 
 export default function TabLayout() {
+  const { isAuthenticated, isLoading } = useAuth();
+
+  // Show loading screen while checking authentication
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#667eea' }}>
+        <Text style={{ color: 'white', fontSize: 16 }}>Loading...</Text>
+      </View>
+    );
+  }
+
+  // Redirect to login if not authenticated
+  if (!isAuthenticated) {
+    return <Redirect href="/(auth)/UserLoginScreen" />;
+  }
+
   return (
     <Tabs
       screenOptions={{

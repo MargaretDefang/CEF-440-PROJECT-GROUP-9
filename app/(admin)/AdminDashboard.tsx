@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   StyleSheet, 
   View, 
@@ -13,31 +13,66 @@ import {
   Modal,
   FlatList,
   TextInput,
-  Switch
+  RefreshControl,
+  Image
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Animatable from 'react-native-animatable';
+import { ApiService, API_BASE_URL } from '../services/ApiService';
+import * as ImagePicker from 'expo-image-picker';
 
-// Interfaces
+const apiService = new ApiService();
+
+// Database interfaces
 interface SignCategory {
-  title: string;
+  id: number;
+  name: string;
   description: string;
+  icon_url?: string;
+  created_at: string;
+}
+
+interface Sign {
+  id: number;
+  name: string;
+  description: string;
+  meaning: string;
+  image_url?: string;
+  category_id: number;
+  category_name: string;
+}
+
+interface SignCategoryWithUI extends SignCategory {
   icon: keyof typeof MaterialIcons.glyphMap;
   gradient: [string, string];
-  signs: string[];
+  signCount: number;
 }
 
 interface Report {
-  id: string;
-  type: string;
+  id: number;
+  title: string;
   description: string;
-  location: string;
+  report_type: string;
   status: 'pending' | 'approved' | 'rejected';
-  reportedBy: string;
-  dateReported: string;
-  priority: 'low' | 'medium' | 'high';
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  latitude: number;
+  longitude: number;
+  address?: string;
+  user_id: number;
+  first_name: string;
+  last_name: string;
+  email: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface UserStats {
+  total_users: number;
+  active_users: number;
+  pending_reports: number;
+  total_reports: number;
 }
 
 const { width, height } = Dimensions.get('window');
@@ -45,12 +80,31 @@ const { width, height } = Dimensions.get('window');
 export default function AdminDashboard() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'signs' | 'reports'>('signs');
-  const [selectedCategory, setSelectedCategory] = useState<SignCategory | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<SignCategoryWithUI | null>(null);
   const [addSignModalVisible, setAddSignModalVisible] = useState(false);
   const [reportsModalVisible, setReportsModalVisible] = useState(false);
+  const [categoryModalVisible, setCategoryModalVisible] = useState(false);
   const [newSignName, setNewSignName] = useState('');
+  const [newSignDescription, setNewSignDescription] = useState('');
+  const [newSignMeaning, setNewSignMeaning] = useState('');
+  const [newSignImage, setNewSignImage] = useState<string | null>(null);
+  const [editSignModalVisible, setEditSignModalVisible] = useState(false);
+  const [editingSign, setEditingSign] = useState<Sign | null>(null);
+  const [editSignName, setEditSignName] = useState('');
+  const [editSignDescription, setEditSignDescription] = useState('');
+  const [editSignMeaning, setEditSignMeaning] = useState('');
+  const [editSignImage, setEditSignImage] = useState<string | null>(null);
   const [reportFilter, setReportFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  
+  // Database state
+  const [signCategories, setSignCategories] = useState<SignCategoryWithUI[]>([]);
+  const [reports, setReports] = useState<Report[]>([]);
+  const [userStats, setUserStats] = useState<UserStats | null>(null);
+  const [categorySigns, setCategorySigns] = useState<Sign[]>([]);
   
   const scaleAnims = useRef([
     new Animated.Value(1),
@@ -61,213 +115,157 @@ export default function AdminDashboard() {
     new Animated.Value(1),
   ]).current;
 
-  // Sign categories (same as home screen)
-  const [signCategories, setSignCategories] = useState<SignCategory[]>([
-    {
-      title: 'Order Signs',
-      icon: 'gavel' as const,
-      gradient: ['#667eea', '#764ba2'] as const,
-      description: 'Regulatory & control signs',
-      signs: [
-        'Stop Sign',
-        'Yield Sign',
-        'Speed Limit Sign',
-        'No Parking Sign',
-        'No Entry Sign',
-        'One Way Sign',
-        'Do Not Enter Sign',
-        'No U-Turn Sign',
-        'No Left Turn Sign',
-        'No Right Turn Sign',
-        'Weight Limit Sign',
-        'Height Limit Sign',
-        'No Trucks Sign',
-        'No Bicycles Sign',
-        'No Pedestrian Crossing Sign',
-        'Lane Use Control Signs',
-        'Mandatory Direction Signs',
-        'Traffic Signal Signs',
-        'Pedestrian Signal Signs'
-      ]
-    },
-    {
-      title: 'Danger Signs',
-      icon: 'warning' as const,
-      gradient: ['#ff6b6b', '#feca57'] as const,
-      description: 'Warning & hazard signs',
-      signs: [
-        'Curve Ahead Sign',
-        'Sharp Turn Sign',
-        'Intersection Ahead Sign',
-        'Pedestrian Crossing Sign',
-        'School Zone Sign',
-        'Children Playing Sign',
-        'Deer Crossing Sign',
-        'Animal Crossing Sign',
-        'Roadwork Ahead Sign',
-        'Construction Zone Ahead',
-        'Lane Reduction Sign',
-        'Merge Sign',
-        'Slippery Road Sign',
-        'Falling Rocks Sign',
-        'Bridge Ahead Sign',
-        'Signal Ahead Sign',
-        'Uneven Pavement Sign',
-        'Steep Grade Sign',
-        'Two-Way Traffic Sign',
-        'Divided Highway Sign'
-      ]
-    },
-    {
-      title: 'Information Signs',
-      icon: 'info' as const,
-      gradient: ['#48dbfb', '#0abde3'] as const,
-      description: 'Service & facility signs',
-      signs: [
-        'Food Service Sign',
-        'Fuel/Gas Station Sign',
-        'Lodging/Hotel Sign',
-        'Rest Stop Sign',
-        'Hospital Sign',
-        'Emergency Phone Sign',
-        'Information Center Sign',
-        'Tourist Attraction Sign',
-        'Parking Sign',
-        'Recreational Area Sign',
-        'Scenic Route Sign',
-        'Historical Marker Sign',
-        'Camping Sign',
-        'Picnic Area Sign',
-        'Restroom Sign'
-      ]
-    },
-    {
-      title: 'Location Signs',
-      icon: 'location-on' as const,
-      gradient: ['#1dd1a1', '#10ac84'] as const,
-      description: 'Place identification signs',
-      signs: [
-        'City/Town Name Sign',
-        'Street Name Sign',
-        'Highway Marker Sign',
-        'Interstate Sign',
-        'State Route Sign',
-        'County Route Sign',
-        'Mile Marker Sign',
-        'Kilometer Post Sign',
-        'Border Crossing Sign',
-        'State Line Sign',
-        'County Line Sign',
-        'Welcome Sign',
-        'Business District Sign'
-      ]
-    },
-    {
-      title: 'Directional Signs',
-      icon: 'navigation' as const,
-      gradient: ['#feca57', '#ff9ff3'] as const,
-      description: 'Route & navigation signs',
-      signs: [
-        'Highway Direction Sign',
-        'Exit Sign',
-        'Next Exit Sign',
-        'Detour Sign',
-        'Lane Designation Sign',
-        'Left Lane Sign',
-        'Right Lane Sign',
-        'Center Lane Sign',
-        'Intersection Sign',
-        'Merge Ahead Sign',
-        'Guide Sign',
-        'Distance Sign',
-        'Junction Sign',
-        'Route Confirmation Sign',
-        'Advance Guide Sign'
-      ]
-    },
-    {
-      title: 'Construction Signs',
-      icon: 'construction' as const,
-      gradient: ['#ff9500', '#ff5722'] as const,
-      description: 'Work zone & construction signs',
-      signs: [
-        'Road Work Ahead',
-        'Construction Zone',
-        'Workers Present',
-        'Flagging Operations',
-        'Lane Closed Ahead',
-        'Detour',
-        'End Construction',
-        'Reduced Speed Ahead',
-        'Fresh Oil',
-        'Loose Gravel',
-        'Bump',
-        'Dip',
-        'Road Closed',
-        'Local Traffic Only',
-        'Pilot Car Follow Me',
-        'One Lane Road Ahead',
-        'Be Prepared to Stop',
-        'Survey Crew',
-        'Mowing Operations',
-        'Maintenance Operations'
-      ]
-    }
-  ]);
+  // Icon mapping for categories
+  const getCategoryIcon = (categoryName: string): keyof typeof MaterialIcons.glyphMap => {
+    const iconMap: { [key: string]: keyof typeof MaterialIcons.glyphMap } = {
+      'Warning Signs': 'warning',
+      'Regulatory Signs': 'gavel',
+      'Informational Signs': 'info',
+      'Construction Signs': 'construction',
+      'Order Signs': 'gavel',
+      'Danger Signs': 'warning',
+      'Information Signs': 'info',
+      'Location Signs': 'location-on',
+      'Directional Signs': 'navigation'
+    };
+    return iconMap[categoryName] || 'traffic';
+  };
 
-  // Mock reports data
-  const [reports, setReports] = useState<Report[]>([
-    {
-      id: '1',
-      type: 'Missing Sign',
-      description: 'Stop sign missing at intersection of Main St and Oak Ave',
-      location: 'Main St & Oak Ave',
-      status: 'pending',
-      reportedBy: 'John Doe',
-      dateReported: '2025-06-20',
-      priority: 'high'
-    },
-    {
-      id: '2',
-      type: 'Damaged Sign',
-      description: 'Speed limit sign is faded and barely readable',
-      location: 'Highway 101, Mile 45',
-      status: 'approved',
-      reportedBy: 'Jane Smith',
-      dateReported: '2025-06-19',
-      priority: 'medium'
-    },
-    {
-      id: '3',
-      type: 'Incorrect Sign',
-      description: 'Wrong speed limit posted - should be 35 mph not 25 mph',
-      location: 'School District Road',
-      status: 'pending',
-      reportedBy: 'Mike Johnson',
-      dateReported: '2025-06-18',
-      priority: 'low'
-    },
-    {
-      id: '4',
-      type: 'New Sign Request',
-      description: 'Need pedestrian crossing sign near new shopping center',
-      location: 'Commerce Blvd',
-      status: 'rejected',
-      reportedBy: 'Sarah Wilson',
-      dateReported: '2025-06-17',
-      priority: 'medium'
-    },
-    {
-      id: '5',
-      type: 'Vandalized Sign',
-      description: 'Graffiti on yield sign, needs cleaning/replacement',
-      location: 'Park Street',
-      status: 'approved',
-      reportedBy: 'Robert Brown',
-      dateReported: '2025-06-16',
-      priority: 'high'
+  // Gradient mapping for categories
+  const getCategoryGradient = (categoryName: string): [string, string] => {
+    const gradientMap: { [key: string]: [string, string] } = {
+      'Warning Signs': ['#ff9500', '#ff5722'],
+      'Regulatory Signs': ['#667eea', '#764ba2'],
+      'Informational Signs': ['#48dbfb', '#0abde3'],
+      'Construction Signs': ['#ff9500', '#ff5722'],
+      'Order Signs': ['#667eea', '#764ba2'],
+      'Danger Signs': ['#ff6b6b', '#feca57'],
+      'Information Signs': ['#48dbfb', '#0abde3'],
+      'Location Signs': ['#1dd1a1', '#10ac84'],
+      'Directional Signs': ['#feca57', '#ff9ff3']
+    };
+    return gradientMap[categoryName] || ['#667eea', '#764ba2'];
+  };
+
+  // Load sign categories from backend
+  const loadSignCategories = async () => {
+    try {
+      setError(null);
+      const categoriesData = await apiService.loadSignCategories();
+      
+      // Transform categories to include UI properties
+      const categoriesWithUI: SignCategoryWithUI[] = await Promise.all(
+        categoriesData.map(async (category: SignCategory) => {
+          // Get sign count for each category
+          const signsData = await apiService.getSignsByCategory(category.id, 1, 1);
+          return {
+            ...category,
+            icon: getCategoryIcon(category.name),
+            gradient: getCategoryGradient(category.name),
+            signCount: signsData.pagination.total_items
+          };
+        })
+      );
+      
+      setSignCategories(categoriesWithUI);
+    } catch (error) {
+      console.error('Error loading sign categories:', error);
+      setError('Failed to load sign categories');
     }
-  ]);
+  };
+
+  // Load reports from backend
+  const loadReports = async () => {
+    try {
+      const reportsData = await apiService.getReports(1, 50);
+      setReports(reportsData.reports || []);
+    } catch (error) {
+      console.error('Error loading reports:', error);
+      setError('Failed to load reports');
+    }
+  };
+
+  // Load user statistics
+  const loadUserStats = async () => {
+    try {
+      const stats = await apiService.getUserStats();
+      setUserStats(stats);
+    } catch (error) {
+      console.error('Error loading user stats:', error);
+      setError('Failed to load user statistics');
+    }
+  };
+
+  // Load signs for a specific category
+  const loadCategorySigns = async (categoryId: number) => {
+    try {
+      const signsData = await apiService.getSignsByCategory(categoryId, 1, 100);
+      setCategorySigns(signsData.signs || []);
+    } catch (error) {
+      console.error('Error loading category signs:', error);
+      Alert.alert('Error', 'Failed to load signs for this category');
+    }
+  };
+
+  // Initialize data
+  useEffect(() => {
+    const initializeData = async () => {
+      try {
+        setInitialLoading(true);
+        await Promise.all([
+          loadSignCategories(),
+          loadReports(),
+          loadUserStats()
+        ]);
+      } catch (error) {
+        console.error('Error initializing data:', error);
+        setError('Failed to load initial data');
+      } finally {
+        setInitialLoading(false);
+      }
+    };
+
+    initializeData();
+  }, []);
+
+  // Refresh data
+  const onRefresh = async () => {
+    setRefreshing(true);
+    setError(null);
+    
+    try {
+      await Promise.all([
+        loadSignCategories(),
+        loadReports(),
+        loadUserStats()
+      ]);
+    } catch (error) {
+      console.error('Error refreshing data:', error);
+      setError('Failed to refresh data');
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  // Error handling wrapper
+  const handleAction = async (action: () => Promise<void>, actionName: string) => {
+    try {
+      setLoading(true);
+      await action();
+    } catch (error) {
+      console.error(`Error in ${actionName}:`, error);
+      Alert.alert(
+        'Oops! Something went wrong',
+        `We couldn't ${actionName.toLowerCase()}. Please check your connection and try again.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Retry', onPress: () => handleAction(action, actionName) }
+        ]
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const animatePress = (index: number) => {
     Animated.sequence([
@@ -284,57 +282,243 @@ export default function AdminDashboard() {
     ]).start();
   };
 
-  const handleAddSign = () => {
+  const handleCategoryPress = async (category: SignCategoryWithUI, index: number) => {
+    animatePress(index);
+    await handleAction(
+      async () => {
+        await new Promise(resolve => setTimeout(resolve, 300));
+        setSelectedCategory(category);
+        await loadCategorySigns(category.id);
+        setCategoryModalVisible(true);
+      },
+      `Open ${category.name}`
+    );
+  };
+
+  const closeCategoryModal = () => {
+    setCategoryModalVisible(false);
+    setSelectedCategory(null);
+  };
+
+  const pickImage = async () => {
+    animatePress(0);
+    await handleAction(async () => {
+      let result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 1,
+      });
+
+      if (!result.canceled) {
+        setNewSignImage(result.assets[0].uri);
+      }
+    }, 'select sign image');
+  };
+
+  const pickEditImage = async () => {
+    animatePress(0);
+    await handleAction(async () => {
+      let result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 1,
+      });
+
+      if (!result.canceled) {
+        setEditSignImage(result.assets[0].uri);
+      }
+    }, 'select sign image');
+  };
+
+  const handleAddSign = async () => {
     if (!newSignName.trim() || !selectedCategory) {
+      Alert.alert('Error', 'Please enter a sign name and select a category');
+      return;
+    }
+
+    await handleAction(async () => {
+      let imageUrl = null;
+      
+      // Upload image if selected
+      if (newSignImage) {
+        try {
+          const uploadResult = await apiService.uploadSignImage(newSignImage);
+          imageUrl = uploadResult.imageUrl;
+        } catch (error) {
+          console.error('Image upload failed:', error);
+          Alert.alert('Warning', 'Sign created but image upload failed. You can add the image later.');
+        }
+      }
+
+      const newSign = await apiService.createSign({
+        name: newSignName.trim(),
+        description: newSignDescription.trim() || newSignName.trim(),
+        meaning: newSignMeaning.trim() || newSignName.trim(),
+        image_url: imageUrl,
+        category_id: selectedCategory.id
+      });
+
+      // Reload category signs and categories
+      await Promise.all([
+        loadCategorySigns(selectedCategory.id),
+        loadSignCategories()
+      ]);
+      
+      setNewSignName('');
+      setNewSignDescription('');
+      setNewSignMeaning('');
+      setNewSignImage(null);
+      setAddSignModalVisible(false);
+      setSelectedCategory(null);
+      
+      Alert.alert('Success', 'Sign added successfully!');
+    }, 'add sign');
+  };
+
+  const handleUpdateSign = async () => {
+    if (!editSignName.trim() || !editingSign) {
       Alert.alert('Error', 'Please enter a sign name');
       return;
     }
 
-    setSignCategories(prev => prev.map(category => 
-      category.title === selectedCategory.title 
-        ? { ...category, signs: [...category.signs, newSignName.trim()] }
-        : category
-    ));
+    await handleAction(async () => {
+      let imageUrl = editingSign.image_url; // Keep existing image URL
+      
+      // Upload new image if selected
+      if (editSignImage) {
+        try {
+          const uploadResult = await apiService.uploadSignImage(editSignImage);
+          imageUrl = uploadResult.imageUrl;
+        } catch (error) {
+          console.error('Image upload failed:', error);
+          Alert.alert('Warning', 'Sign updated but image upload failed. The old image will be kept.');
+        }
+      }
 
-    setNewSignName('');
-    setAddSignModalVisible(false);
-    setSelectedCategory(null);
-    
-    Alert.alert('Success', 'Sign added successfully!');
+      const updatedSign = await apiService.updateSign(editingSign.id, {
+        name: editSignName.trim(),
+        description: editSignDescription.trim() || editSignName.trim(),
+        meaning: editSignMeaning.trim() || editSignName.trim(),
+        image_url: imageUrl,
+        category_id: editingSign.category_id,
+      });
+
+      // Reload category signs and categories
+      if (selectedCategory) {
+        await Promise.all([
+          loadCategorySigns(selectedCategory.id),
+          loadSignCategories()
+        ]);
+      }
+      
+      setEditSignName('');
+      setEditSignDescription('');
+      setEditSignMeaning('');
+      setEditSignImage(null);
+      setEditingSign(null);
+      setEditSignModalVisible(false);
+      
+      Alert.alert('Success', 'Sign updated successfully!');
+    }, 'update sign');
   };
 
-  const handleDeleteSign = (categoryTitle: string, signToDelete: string) => {
+  const handleDeleteSign = async (signId: number, signName: string) => {
     Alert.alert(
       'Delete Sign',
-      `Are you sure you want to delete "${signToDelete}"?`,
+      `Are you sure you want to delete "${signName}"?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: () => {
-            setSignCategories(prev => prev.map(category => 
-              category.title === categoryTitle 
-                ? { ...category, signs: category.signs.filter(sign => sign !== signToDelete) }
-                : category
-            ));
+          onPress: async () => {
+            await handleAction(async () => {
+              await apiService.deleteSign(signId);
+              
+              // Reload category signs and categories
+              if (selectedCategory) {
+                await Promise.all([
+                  loadCategorySigns(selectedCategory.id),
+                  loadSignCategories()
+                ]);
+              }
+              
+              Alert.alert('Success', 'Sign deleted successfully!');
+            }, 'delete sign');
           }
         }
       ]
     );
   };
 
-  const handleReportAction = (reportId: string, action: 'approve' | 'reject') => {
-    setReports(prev => prev.map(report => 
-      report.id === reportId 
-        ? { ...report, status: action === 'approve' ? 'approved' : 'rejected' }
-        : report
-    ));
-    
-    Alert.alert(
-      'Success', 
-      `Report ${action === 'approve' ? 'approved' : 'rejected'} successfully!`
-    );
+  const getPriorityColor = (priority: string) => {
+    switch (priority) {
+      case 'low': return '#1dd1a1';
+      case 'medium': return '#feca57';
+      case 'high': return '#ff9ff3';
+      case 'urgent': return '#ff6b6b';
+      default: return '#999';
+    }
+  };
+
+  const handleEditSign = (sign: Sign) => {
+    setEditingSign(sign);
+    setEditSignName(sign.name);
+    setEditSignDescription(sign.description);
+    setEditSignMeaning(sign.meaning);
+    setEditSignImage(null); // Reset image selection
+    setEditSignModalVisible(true);
+  };
+
+  const renderSignItem = ({ item }: { item: Sign }) => (
+    <View style={styles.signItem}>
+      <View style={styles.signItemIcon}>
+        {item.image_url ? (
+          <Image
+            source={{ uri: API_BASE_URL + item.image_url }}
+            style={styles.signImage}
+            resizeMode="contain"
+          />
+        ) : (
+          <MaterialIcons name="traffic" size={20} color="#667eea" />
+        )}
+      </View>
+      <View style={styles.signItemContent}>
+        <Text style={styles.signItemText}>{item.name}</Text>
+        <Text style={styles.signItemDescription}>{item.description}</Text>
+        <Text style={styles.signItemMeaning}>Meaning: {item.meaning}</Text>
+      </View>
+      <View style={styles.signItemActions}>
+        <TouchableOpacity 
+          onPress={() => handleEditSign(item)}
+          style={styles.editButton}
+        >
+          <MaterialIcons name="edit" size={20} color="#667eea" />
+        </TouchableOpacity>
+        <TouchableOpacity 
+          onPress={() => handleDeleteSign(item.id, item.name)}
+          style={styles.deleteButton}
+        >
+          <MaterialIcons name="delete" size={20} color="#ff6b6b" />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
+  const handleReportAction = async (reportId: number, action: 'approve' | 'reject') => {
+    await handleAction(async () => {
+      await apiService.updateReport(reportId, { status: action === 'approve' ? 'approved' : 'rejected' });
+      
+      // Reload reports
+      await loadReports();
+      
+      Alert.alert(
+        'Success', 
+        `Report ${action === 'approve' ? 'approved' : 'rejected'} successfully!`
+      );
+    }, `${action} report`);
   };
 
   const getFilteredReports = () => {
@@ -351,35 +535,11 @@ export default function AdminDashboard() {
     }
   };
 
-  const getPriorityColor = (priority: string) => {
-    switch (priority) {
-      case 'high': return '#ff6b6b';
-      case 'medium': return '#feca57';
-      case 'low': return '#48dbfb';
-      default: return '#999';
-    }
-  };
-
-  const renderSignItem = ({ item, index }: { item: string; index: number }) => (
-    <View style={styles.signItem}>
-      <View style={styles.signItemIcon}>
-        <MaterialIcons name="traffic" size={20} color="#667eea" />
-      </View>
-      <Text style={styles.signItemText}>{item}</Text>
-      <TouchableOpacity 
-        onPress={() => handleDeleteSign(selectedCategory?.title || '', item)}
-        style={styles.deleteButton}
-      >
-        <MaterialIcons name="delete" size={20} color="#ff6b6b" />
-      </TouchableOpacity>
-    </View>
-  );
-
   const renderReportItem = ({ item }: { item: Report }) => (
     <View style={styles.reportItem}>
       <View style={styles.reportHeader}>
         <View style={styles.reportTypeContainer}>
-          <Text style={styles.reportType}>{item.type}</Text>
+          <Text style={styles.reportType}>{item.report_type}</Text>
           <View style={[styles.priorityBadge, { backgroundColor: getPriorityColor(item.priority) }]}>
             <Text style={styles.priorityText}>{item.priority.toUpperCase()}</Text>
           </View>
@@ -389,20 +549,21 @@ export default function AdminDashboard() {
         </View>
       </View>
       
+      <Text style={styles.reportTitle}>{item.title}</Text>
       <Text style={styles.reportDescription}>{item.description}</Text>
       
       <View style={styles.reportDetails}>
         <View style={styles.reportDetailItem}>
           <MaterialIcons name="location-on" size={16} color="#666" />
-          <Text style={styles.reportDetailText}>{item.location}</Text>
+          <Text style={styles.reportDetailText}>{item.address || `${item.latitude}, ${item.longitude}`}</Text>
         </View>
         <View style={styles.reportDetailItem}>
           <MaterialIcons name="person" size={16} color="#666" />
-          <Text style={styles.reportDetailText}>{item.reportedBy}</Text>
+          <Text style={styles.reportDetailText}>{`${item.first_name} ${item.last_name}`}</Text>
         </View>
         <View style={styles.reportDetailItem}>
           <MaterialIcons name="date-range" size={16} color="#666" />
-          <Text style={styles.reportDetailText}>{item.dateReported}</Text>
+          <Text style={styles.reportDetailText}>{new Date(item.created_at).toLocaleDateString()}</Text>
         </View>
       </View>
 
@@ -519,6 +680,12 @@ export default function AdminDashboard() {
           style={styles.content}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+            />
+          }
         >
           {activeTab === 'signs' ? (
             // Signs Management
@@ -531,7 +698,7 @@ export default function AdminDashboard() {
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Sign Categories</Text>
                 <Text style={styles.sectionSubtitle}>
-                  {signCategories.reduce((total, category) => total + category.signs.length, 0)} total signs
+                  {signCategories.reduce((total, category) => total + category.signCount, 0)} total signs
                 </Text>
               </View>
               
@@ -546,11 +713,7 @@ export default function AdminDashboard() {
                   >
                     <TouchableOpacity
                       style={styles.signCard}
-                      onPress={() => {
-                        animatePress(Math.min(index, scaleAnims.length - 1));
-                        setSelectedCategory(category);
-                        setAddSignModalVisible(true);
-                      }}
+                      onPress={() => handleCategoryPress(category, Math.min(index, scaleAnims.length - 1))}
                       activeOpacity={0.8}
                     >
                       <LinearGradient
@@ -560,19 +723,19 @@ export default function AdminDashboard() {
                         end={{ x: 1, y: 1 }}
                       >
                         <View style={styles.signIconContainer}>
-                          <MaterialIcons 
-                            name={category.icon} 
-                            size={28} 
-                            color="white" 
-                          />
+                            <MaterialIcons 
+                              name={category.icon} 
+                              size={28} 
+                              color="white" 
+                            />
                         </View>
                         <View style={styles.signContent}>
-                          <Text style={styles.signTitle}>{category.title}</Text>
+                          <Text style={styles.signTitle}>{category.name}</Text>
                           <Text style={styles.signDescription}>{category.description}</Text>
-                          <Text style={styles.signCount}>{category.signs.length} signs</Text>
+                          <Text style={styles.signCount}>{category.signCount} signs</Text>
                         </View>
-                        <View style={styles.addIcon}>
-                          <MaterialIcons name="add" size={20} color="white" />
+                        <View style={styles.signArrow}>
+                          <MaterialIcons name="arrow-forward" size={20} color="rgba(255, 255, 255, 0.9)" />
                         </View>
                       </LinearGradient>
                     </TouchableOpacity>
@@ -582,74 +745,8 @@ export default function AdminDashboard() {
             </Animatable.View>
           ) : (
             <View style={styles.emptySection} />
-
-)}
+          )}
         </ScrollView>
-
-        {/* Add Sign Modal */}
-        <Modal
-          animationType="slide"
-          transparent={true}
-          visible={addSignModalVisible}
-          onRequestClose={() => setAddSignModalVisible(false)}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContainer}>
-              <LinearGradient
-                colors={selectedCategory ? selectedCategory.gradient : ['#667eea', '#764ba2']}
-                style={styles.modalHeader}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-              >
-                <View style={styles.modalHeaderContent}>
-                  <Text style={styles.modalTitle}>Add Sign to {selectedCategory?.title}</Text>
-                  <TouchableOpacity 
-                    onPress={() => setAddSignModalVisible(false)}
-                    style={styles.closeButton}
-                  >
-                    <MaterialIcons name="close" size={24} color="white" />
-                  </TouchableOpacity>
-                </View>
-              </LinearGradient>
-              
-              <View style={styles.modalContent}>
-                <Text style={styles.inputLabel}>Sign Name</Text>
-                <TextInput
-                  style={styles.textInput}
-                  value={newSignName}
-                  onChangeText={setNewSignName}
-                  placeholder="Enter sign name..."
-                  placeholderTextColor="#999"
-                />
-
-                <View style={styles.modalActions}>
-                  <TouchableOpacity 
-                    style={styles.cancelButton}
-                    onPress={() => setAddSignModalVisible(false)}
-                  >
-                    <Text style={styles.cancelButtonText}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={styles.addButton}
-                    onPress={handleAddSign}
-                  >
-                    <Text style={styles.addButtonText}>Add Sign</Text>
-                  </TouchableOpacity>
-                </View>
-
-                {/* Current Signs List */}
-                <Text style={styles.currentSignsTitle}>Current Signs in {selectedCategory?.title}</Text>
-                <FlatList
-                  data={selectedCategory?.signs || []}
-                  renderItem={renderSignItem}
-                  keyExtractor={(item, index) => `${item}-${index}`}
-                  style={styles.currentSignsList}
-                  showsVerticalScrollIndicator={false}
-                />
-              </View>
-            </View>
-          </View>
-        </Modal>
 
         {/* Reports Filter Modal */}
         <Modal
@@ -679,6 +776,276 @@ export default function AdminDashboard() {
                   )}
                 </TouchableOpacity>
               ))}
+            </View>
+          </View>
+        </Modal>
+
+        {/* Category Signs Modal */}
+        <Modal
+          animationType="slide"
+          transparent={true}
+          visible={categoryModalVisible}
+          onRequestClose={closeCategoryModal}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContainer}>
+              <LinearGradient
+                colors={selectedCategory ? selectedCategory.gradient : ['#667eea', '#764ba2']}
+                style={styles.modalHeader}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              >
+                <View style={styles.modalHeaderContent}>
+                  <View style={styles.modalTitleContainer}>
+                    <MaterialIcons name={selectedCategory?.icon || 'traffic'} size={24} color="white" />
+                    <Text style={styles.modalTitle}>{selectedCategory?.name}</Text>
+                  </View>
+                  <TouchableOpacity onPress={closeCategoryModal} style={styles.closeButton}>
+                    <MaterialIcons name="close" size={24} color="white" />
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.modalSubtitle}>{selectedCategory?.description}</Text>
+              </LinearGradient>
+              
+              <View style={styles.modalContent}>
+                <View style={styles.modalActions}>
+                  <TouchableOpacity 
+                    style={styles.addSignButton}
+                    onPress={() => {
+                      setAddSignModalVisible(true);
+                    }}
+                  >
+                    <MaterialIcons name="add" size={16} color="white" />
+                    <Text style={styles.addSignButtonText}>Add New Sign</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={styles.currentSignsTitle}>Signs in {selectedCategory?.name}</Text>
+                <FlatList
+                  data={categorySigns}
+                  renderItem={renderSignItem}
+                  keyExtractor={(item) => item.id.toString()}
+                  style={styles.currentSignsList}
+                  showsVerticalScrollIndicator={false}
+                  ListEmptyComponent={
+                    <View style={styles.emptySignsList}>
+                      <MaterialIcons name="traffic" size={48} color="#ccc" />
+                      <Text style={styles.emptySignsText}>No signs in this category</Text>
+                      <Text style={styles.emptySignsSubtext}>Add the first sign to get started</Text>
+                    </View>
+                  }
+                />
+
+                {/* Add Sign Modal - Now inside category modal */}
+                <Modal
+                  animationType="fade"
+                  transparent={true}
+                  visible={addSignModalVisible}
+                  onRequestClose={() => setAddSignModalVisible(false)}
+                >
+                  <View style={styles.popupOverlay}>
+                    <View style={styles.popupContainer}>
+                      <LinearGradient
+                        colors={selectedCategory ? selectedCategory.gradient : ['#667eea', '#764ba2']}
+                        style={styles.popupHeader}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                      >
+                        <View style={styles.modalHeaderContent}>
+                          <Text style={styles.modalTitle}>Add Sign to {selectedCategory?.name}</Text>
+                          <TouchableOpacity 
+                            onPress={() => setAddSignModalVisible(false)}
+                            style={styles.closeButton}
+                          >
+                            <MaterialIcons name="close" size={24} color="white" />
+                          </TouchableOpacity>
+                        </View>
+                      </LinearGradient>
+                      
+                      <View style={styles.popupContent}>
+                        <Text style={styles.inputLabel}>Sign Name</Text>
+                        <TextInput
+                          style={styles.textInput}
+                          value={newSignName}
+                          onChangeText={setNewSignName}
+                          placeholder="Enter sign name..."
+                          placeholderTextColor="#999"
+                        />
+
+                        <Text style={styles.inputLabel}>Description</Text>
+                        <TextInput
+                          style={styles.textInput}
+                          value={newSignDescription}
+                          onChangeText={setNewSignDescription}
+                          placeholder="Enter sign description..."
+                          placeholderTextColor="#999"
+                        />
+
+                        <Text style={styles.inputLabel}>Meaning</Text>
+                        <TextInput
+                          style={styles.textInput}
+                          value={newSignMeaning}
+                          onChangeText={setNewSignMeaning}
+                          placeholder="Enter sign meaning..."
+                          placeholderTextColor="#999"
+                        />
+
+                        {/* Image Upload Section */}
+                        <Text style={styles.inputLabel}>Sign Image (Optional)</Text>
+                        <View style={styles.imageUploadContainer}>
+                          <TouchableOpacity 
+                            style={styles.imageContainer} 
+                            onPress={pickImage}
+                            disabled={loading}
+                          >
+                            {newSignImage ? (
+                              <View style={styles.imagePreviewWrapper}>
+                                <Image source={{ uri: newSignImage }} style={styles.imagePreview} />
+                                <LinearGradient
+                                  colors={['rgba(254, 202, 87, 0.8)', 'rgba(254, 202, 87, 0.4)']}
+                                  style={styles.editIconContainer}
+                                >
+                                  <MaterialIcons name="edit" size={16} color="white" />
+                                </LinearGradient>
+                              </View>
+                            ) : (
+                              <View style={styles.uploadPlaceholder}>
+                                <MaterialIcons name="add-a-photo" size={32} color="#667eea" />
+                                <Text style={styles.uploadPlaceholderText}>Add Image</Text>
+                              </View>
+                            )}
+                          </TouchableOpacity>
+                        </View>
+
+                        <View style={styles.modalActions}>
+                          <TouchableOpacity 
+                            style={styles.cancelButton}
+                            onPress={() => setAddSignModalVisible(false)}
+                          >
+                            <Text style={styles.cancelButtonText}>Cancel</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity 
+                            style={styles.addButton}
+                            onPress={handleAddSign}
+                          >
+                            <Text style={styles.addButtonText}>Add Sign</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+                </Modal>
+
+                {/* Edit Sign Modal */}
+                <Modal
+                  animationType="fade"
+                  transparent={true}
+                  visible={editSignModalVisible}
+                  onRequestClose={() => setEditSignModalVisible(false)}
+                >
+                  <View style={styles.popupOverlay}>
+                    <View style={styles.popupContainer}>
+                      <LinearGradient
+                        colors={selectedCategory ? selectedCategory.gradient : ['#667eea', '#764ba2']}
+                        style={styles.popupHeader}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                      >
+                        <View style={styles.modalHeaderContent}>
+                          <Text style={styles.modalTitle}>Edit Sign</Text>
+                          <TouchableOpacity 
+                            onPress={() => setEditSignModalVisible(false)}
+                            style={styles.closeButton}
+                          >
+                            <MaterialIcons name="close" size={24} color="white" />
+                          </TouchableOpacity>
+                        </View>
+                      </LinearGradient>
+                      
+                      <View style={styles.popupContent}>
+                        <Text style={styles.inputLabel}>Sign Name</Text>
+                        <TextInput
+                          style={styles.textInput}
+                          value={editSignName}
+                          onChangeText={setEditSignName}
+                          placeholder="Enter sign name..."
+                          placeholderTextColor="#999"
+                        />
+
+                        <Text style={styles.inputLabel}>Description</Text>
+                        <TextInput
+                          style={styles.textInput}
+                          value={editSignDescription}
+                          onChangeText={setEditSignDescription}
+                          placeholder="Enter sign description..."
+                          placeholderTextColor="#999"
+                        />
+
+                        <Text style={styles.inputLabel}>Meaning</Text>
+                        <TextInput
+                          style={styles.textInput}
+                          value={editSignMeaning}
+                          onChangeText={setEditSignMeaning}
+                          placeholder="Enter sign meaning..."
+                          placeholderTextColor="#999"
+                        />
+
+                        {/* Image Upload Section */}
+                        <Text style={styles.inputLabel}>Sign Image</Text>
+                        <View style={styles.imageUploadContainer}>
+                          <TouchableOpacity 
+                            style={styles.imageContainer} 
+                            onPress={pickEditImage}
+                            disabled={loading}
+                          >
+                            {editSignImage ? (
+                              <View style={styles.imagePreviewWrapper}>
+                                <Image source={{ uri: editSignImage }} style={styles.imagePreview} />
+                                <LinearGradient
+                                  colors={['rgba(254, 202, 87, 0.8)', 'rgba(254, 202, 87, 0.4)']}
+                                  style={styles.editIconContainer}
+                                >
+                                  <MaterialIcons name="edit" size={16} color="white" />
+                                </LinearGradient>
+                              </View>
+                            ) : editingSign?.image_url ? (
+                              <View style={styles.imagePreviewWrapper}>
+                                <Image source={{ uri: API_BASE_URL + editingSign.image_url }} style={styles.imagePreview} />
+                                <LinearGradient
+                                  colors={['rgba(254, 202, 87, 0.8)', 'rgba(254, 202, 87, 0.4)']}
+                                  style={styles.editIconContainer}
+                                >
+                                  <MaterialIcons name="edit" size={16} color="white" />
+                                </LinearGradient>
+                              </View>
+                            ) : (
+                              <View style={styles.uploadPlaceholder}>
+                                <MaterialIcons name="add-a-photo" size={32} color="#667eea" />
+                                <Text style={styles.uploadPlaceholderText}>Add Image</Text>
+                              </View>
+                            )}
+                          </TouchableOpacity>
+                        </View>
+
+                        <View style={styles.modalActions}>
+                          <TouchableOpacity 
+                            style={styles.cancelButton}
+                            onPress={() => setEditSignModalVisible(false)}
+                          >
+                            <Text style={styles.cancelButtonText}>Cancel</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity 
+                            style={styles.addButton}
+                            onPress={handleUpdateSign}
+                          >
+                            <Text style={styles.addButtonText}>Update Sign</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+                </Modal>
+              </View>
             </View>
           </View>
         </Modal>
@@ -882,7 +1249,7 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.8)',
     fontWeight: '600',
   },
-  addIcon: {
+  signArrow: {
     position: 'absolute',
     bottom: 16,
     right: 16,
@@ -982,6 +1349,12 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: 'bold',
     color: 'white',
+  },
+  reportTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 8,
   },
   reportDescription: {
     fontSize: 14,
@@ -1093,7 +1466,7 @@ const styles = StyleSheet.create({
   },
   modalActions: {
     flexDirection: 'row',
-    gap: 12,
+    justifyContent: 'flex-end',
     marginBottom: 20,
   },
   cancelButton: {
@@ -1143,11 +1516,30 @@ const styles = StyleSheet.create({
     padding: 6,
     marginRight: 12,
   },
+  signItemContent: {
+    flex: 1,
+  },
   signItemText: {
     flex: 1,
     fontSize: 14,
     fontWeight: '500',
     color: '#333',
+  },
+  signItemDescription: {
+    fontSize: 12,
+    color: '#666',
+  },
+  signItemMeaning: {
+    fontSize: 12,
+    color: '#666',
+  },
+  signItemActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  editButton: {
+    padding: 6,
   },
   deleteButton: {
     padding: 6,
@@ -1171,5 +1563,116 @@ const styles = StyleSheet.create({
     color: '#667eea',
     fontWeight: '600',
   },
+  signImage: {
+    width: 40,
+    height: 40,
+  },
+  modalTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.8)',
+    marginBottom: 20,
+  },
+  addSignButton: {
+    backgroundColor: 'rgba(102, 126, 234, 0.7)',
+    borderRadius: 8,
+    padding: 8,
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
+  },
+  addSignButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  emptySignsList: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptySignsText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#ccc',
+    marginBottom: 8,
+  },
+  emptySignsSubtext: {
+    fontSize: 14,
+    color: '#ccc',
+  },
+  popupOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  popupContainer: {
+    backgroundColor: 'white',
+    borderRadius: 20,
+    margin: 20,
+    maxHeight: '80%',
+    width: '90%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 15,
+  },
+  popupHeader: {
+    padding: 20,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+  },
+  popupContent: {
+    padding: 20,
+  },
+  imageUploadContainer: {
+    marginBottom: 20,
+  },
+  imageContainer: {
+    borderWidth: 2,
+    borderColor: '#667eea',
+    borderStyle: 'dashed',
+    borderRadius: 8,
+    padding: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  imagePreviewWrapper: {
+    position: 'relative',
+  },
+  imagePreview: {
+    width: 100,
+    height: 100,
+    borderRadius: 8,
+  },
+  editIconContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  uploadPlaceholder: {
+    borderWidth: 2,
+    borderColor: '#667eea',
+    borderStyle: 'dashed',
+    borderRadius: 8,
+    padding: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  uploadPlaceholderText: {
+    fontSize: 14,
+    color: '#667eea',
+    fontWeight: '600',
+  },
 });
-

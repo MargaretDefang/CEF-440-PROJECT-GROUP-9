@@ -115,6 +115,20 @@ router.post('/login', [
       return res.status(400).json({ message: 'Invalid credentials' });
     }
 
+    // Check if user is suspended
+    if (user.rows[0].status === 'suspended') {
+      return res.status(403).json({ 
+        message: 'Your account has been suspended. Please contact support for assistance.' 
+      });
+    }
+
+    // Check if user is pending (optional - you might want to allow pending users to login)
+    if (user.rows[0].status === 'pending') {
+      return res.status(403).json({ 
+        message: 'Your account is pending approval. Please wait for admin approval.' 
+      });
+    }
+
     // Create JWT token
     const payload = {
       user: {

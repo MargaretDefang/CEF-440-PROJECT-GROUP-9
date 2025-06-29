@@ -59,18 +59,44 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     checkAuthStatus();
   }, []);
 
+  // Fallback to ensure isLoading is set to false
+  useEffect(() => {
+    const fallbackTimer = setTimeout(() => {
+      if (isLoading) {
+        console.log('AuthContext - Fallback: Setting isLoading to false');
+        setIsLoading(false);
+      }
+    }, 10000); // 10 second fallback
+
+    return () => clearTimeout(fallbackTimer);
+  }, [isLoading]);
+
   const checkAuthStatus = async () => {
     try {
       setIsLoading(true);
       
-      if (apiService.isAuthenticated()) {
-        const userData = await apiService.getCurrentUser();
-        setUser(userData);
-      }
+      // Add a timeout to prevent hanging
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Timeout')), 5000)
+      );
+      
+      const authCheckPromise = (async () => {
+        if (apiService.isAuthenticated()) {
+          const userData = await apiService.getCurrentUser();
+          setUser(userData);
+        }
+      })();
+      
+      await Promise.race([authCheckPromise, timeoutPromise]);
+      
     } catch (error) {
-      console.log('No valid authentication found');
+      console.log('No valid authentication found:', error);
       // Clear any invalid tokens
-      await apiService.logout();
+      try {
+        await apiService.logout();
+      } catch (logoutError) {
+        console.log('Logout error during auth check:', logoutError);
+      }
     } finally {
       setIsLoading(false);
     }
