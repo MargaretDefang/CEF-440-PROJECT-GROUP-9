@@ -99,6 +99,15 @@ export default function AdminDashboard() {
   const [editSignMeaning, setEditSignMeaning] = useState('');
   const [editSignImage, setEditSignImage] = useState<string | null>(null);
   const [reportFilter, setReportFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [addCategoryModalVisible, setAddCategoryModalVisible] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [newCategoryDescription, setNewCategoryDescription] = useState('');
+  const [editCategoryModalVisible, setEditCategoryModalVisible] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<SignCategory | null>(null);
+  const [editCategoryName, setEditCategoryName] = useState('');
+  const [editCategoryDescription, setEditCategoryDescription] = useState('');
+  const [categoryMenuVisible, setCategoryMenuVisible] = useState(false);
+  const [selectedCategoryForMenu, setSelectedCategoryForMenu] = useState<SignCategory | null>(null);
   
   // Database state
   const [signCategories, setSignCategories] = useState<SignCategoryWithUI[]>([]);
@@ -144,7 +153,41 @@ export default function AdminDashboard() {
       'Location Signs': ['#1dd1a1', '#10ac84'],
       'Directional Signs': ['#feca57', '#ff9ff3']
     };
-    return gradientMap[categoryName] || ['#667eea', '#764ba2'];
+    
+    // If category name exists in the map, return its gradient
+    if (gradientMap[categoryName]) {
+      return gradientMap[categoryName];
+    }
+    
+    // For new categories, assign from a pool of unique colors
+    const newCategoryGradients: [string, string][] = [
+      ['#9c88ff', '#8c7ae6'], // Purple
+      ['#00d2d3', '#54a0ff'], // Cyan to Blue
+      ['#ff9ff3', '#f368e0'], // Pink
+      ['#ff6b6b', '#ee5a24'], // Red
+      ['#48dbfb', '#0abde3'], // Light Blue
+      ['#1dd1a1', '#10ac84'], // Green
+      ['#feca57', '#ff9ff3'], // Yellow to Pink
+      ['#ff9f43', '#f39c12'], // Orange
+      ['#5f27cd', '#341f97'], // Deep Purple
+      ['#00d2d3', '#54a0ff'], // Teal to Blue
+      ['#ff6b6b', '#c44569'], // Red to Dark Pink
+      ['#26de81', '#20bf6b'], // Bright Green
+      ['#fd79a8', '#e84393'], // Pink to Dark Pink
+      ['#6c5ce7', '#a29bfe'], // Purple to Light Purple
+      ['#00cec9', '#81ecec'], // Turquoise
+    ];
+    
+    // Use a hash of the category name to consistently assign colors
+    let hash = 0;
+    for (let i = 0; i < categoryName.length; i++) {
+      const char = categoryName.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    
+    const index = Math.abs(hash) % newCategoryGradients.length;
+    return newCategoryGradients[index];
   };
 
   // Load sign categories from backend
@@ -205,6 +248,18 @@ export default function AdminDashboard() {
       console.error('Error loading category signs:', error);
       Alert.alert('Error', 'Failed to load signs for this category');
     }
+  };
+
+  // Fetch all signs (for refresh after add/edit)
+  const fetchSigns = async () => {
+    if (selectedCategory) {
+      await loadCategorySigns(selectedCategory.id);
+    }
+  };
+
+  // Fetch all categories (for refresh after add)
+  const fetchCategories = async () => {
+    await loadSignCategories();
   };
 
   // Initialize data
@@ -472,6 +527,95 @@ export default function AdminDashboard() {
     setEditSignModalVisible(true);
   };
 
+  const handleAddCategory = async () => {
+    if (!newCategoryName.trim()) {
+      Alert.alert('Error', 'Category name is required');
+      return;
+    }
+    
+    try {
+      await apiService.createCategory({
+        name: newCategoryName.trim(),
+        description: newCategoryDescription.trim(),
+      });
+      
+      Alert.alert('Success', 'Category added successfully');
+      setAddCategoryModalVisible(false);
+      setNewCategoryName('');
+      setNewCategoryDescription('');
+      fetchCategories();
+    } catch (error) {
+      console.error('Error adding category:', error);
+      Alert.alert('Error', 'Failed to add category');
+    }
+  };
+
+  const handleEditCategory = async () => {
+    if (!editingCategory || !editCategoryName.trim()) {
+      Alert.alert('Error', 'Category name is required');
+      return;
+    }
+    
+    try {
+      await apiService.updateCategory(editingCategory.id, {
+        name: editCategoryName.trim(),
+        description: editCategoryDescription.trim(),
+      });
+      
+      Alert.alert('Success', 'Category updated successfully');
+      setEditCategoryModalVisible(false);
+      setEditingCategory(null);
+      setEditCategoryName('');
+      setEditCategoryDescription('');
+      fetchCategories();
+    } catch (error) {
+      console.error('Error updating category:', error);
+      Alert.alert('Error', 'Failed to update category');
+    }
+  };
+
+  const handleDeleteCategory = async (category: SignCategory) => {
+    Alert.alert(
+      'Delete Category',
+      `Are you sure you want to delete "${category.name}"? This will also delete all signs in this category.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await apiService.deleteCategory(category.id);
+              Alert.alert('Success', 'Category deleted successfully');
+              fetchCategories();
+            } catch (error) {
+              console.error('Error deleting category:', error);
+              Alert.alert('Error', 'Failed to delete category');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const openCategoryMenu = (category: SignCategory) => {
+    setSelectedCategoryForMenu(category);
+    setCategoryMenuVisible(true);
+  };
+
+  const closeCategoryMenu = () => {
+    setCategoryMenuVisible(false);
+    setSelectedCategoryForMenu(null);
+  };
+
+  const openEditCategoryModal = (category: SignCategory) => {
+    setEditingCategory(category);
+    setEditCategoryName(category.name);
+    setEditCategoryDescription(category.description || '');
+    setEditCategoryModalVisible(true);
+    closeCategoryMenu();
+  };
+
   const renderSignItem = ({ item }: { item: Sign }) => (
     <View style={styles.signItem}>
       <View style={styles.signItemIcon}>
@@ -695,6 +839,9 @@ export default function AdminDashboard() {
               delay={400}
               style={styles.signsSection}
             >
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Road Signs Management</Text>
+              </View>
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Sign Categories</Text>
                 <Text style={styles.sectionSubtitle}>
@@ -734,8 +881,16 @@ export default function AdminDashboard() {
                           <Text style={styles.signDescription}>{category.description}</Text>
                           <Text style={styles.signCount}>{category.signCount} signs</Text>
                         </View>
-                        <View style={styles.signArrow}>
-                          <MaterialIcons name="arrow-forward" size={20} color="rgba(255, 255, 255, 0.9)" />
+                        <View style={styles.signCardActions}>
+                          <TouchableOpacity 
+                            style={styles.categoryMenuButton}
+                            onPress={(e) => {
+                              e.stopPropagation();
+                              openCategoryMenu(category);
+                            }}
+                          >
+                            <MaterialIcons name="more-vert" size={20} color="rgba(255, 255, 255, 0.9)" />
+                          </TouchableOpacity>
                         </View>
                       </LinearGradient>
                     </TouchableOpacity>
@@ -1049,6 +1204,182 @@ export default function AdminDashboard() {
             </View>
           </View>
         </Modal>
+
+        {/* Add Category Modal */}
+        <Modal
+          visible={addCategoryModalVisible}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setAddCategoryModalVisible(false)}
+        >
+          <View style={styles.popupOverlay}>
+            <View style={styles.popupContainer}>
+              <View style={styles.popupHeader}>
+                <LinearGradient
+                  colors={['#667eea', '#764ba2']}
+                  style={styles.popupHeader}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                >
+                  <View style={styles.modalTitleContainer}>
+                    <MaterialIcons name="add-circle" size={24} color="white" />
+                    <Text style={styles.modalTitle}>Add New Category</Text>
+                  </View>
+                  <Text style={styles.modalSubtitle}>Create a new road sign category</Text>
+                </LinearGradient>
+              </View>
+              
+              <View style={styles.popupContent}>
+                <Text style={styles.inputLabel}>Category Name *</Text>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Enter category name"
+                  value={newCategoryName}
+                  onChangeText={setNewCategoryName}
+                  placeholderTextColor="#999"
+                />
+                
+                <Text style={styles.inputLabel}>Description</Text>
+                <TextInput
+                  style={[styles.textInput, { height: 80, textAlignVertical: 'top' }]}
+                  placeholder="Enter category description (optional)"
+                  value={newCategoryDescription}
+                  onChangeText={setNewCategoryDescription}
+                  placeholderTextColor="#999"
+                  multiline
+                />
+                
+                <View style={styles.modalActions}>
+                  <TouchableOpacity 
+                    style={styles.cancelButton}
+                    onPress={() => setAddCategoryModalVisible(false)}
+                  >
+                    <Text style={styles.cancelButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={styles.addButton}
+                    onPress={handleAddCategory}
+                  >
+                    <Text style={styles.addButtonText}>Add Category</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Category Menu Modal */}
+        <Modal
+          visible={categoryMenuVisible}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={closeCategoryMenu}
+        >
+          <TouchableOpacity 
+            style={styles.popupOverlay} 
+            activeOpacity={1} 
+            onPress={closeCategoryMenu}
+          >
+            <View style={styles.categoryMenuContainer}>
+              <TouchableOpacity 
+                style={styles.categoryMenuItem}
+                onPress={() => openEditCategoryModal(selectedCategoryForMenu!)}
+              >
+                <MaterialIcons name="edit" size={20} color="#667eea" />
+                <Text style={styles.categoryMenuItemText}>Edit Category</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.categoryMenuItem, styles.categoryMenuItemDelete]}
+                onPress={() => {
+                  closeCategoryMenu();
+                  handleDeleteCategory(selectedCategoryForMenu!);
+                }}
+              >
+                <MaterialIcons name="delete" size={20} color="#ff6b6b" />
+                <Text style={[styles.categoryMenuItemText, styles.categoryMenuItemTextDelete]}>Delete Category</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </Modal>
+
+        {/* Edit Category Modal */}
+        <Modal
+          visible={editCategoryModalVisible}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setEditCategoryModalVisible(false)}
+        >
+          <View style={styles.popupOverlay}>
+            <View style={styles.popupContainer}>
+              <View style={styles.popupHeader}>
+                <LinearGradient
+                  colors={['#667eea', '#764ba2']}
+                  style={styles.popupHeader}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                >
+                  <View style={styles.modalTitleContainer}>
+                    <MaterialIcons name="edit" size={24} color="white" />
+                    <Text style={styles.modalTitle}>Edit Category</Text>
+                  </View>
+                  <Text style={styles.modalSubtitle}>Update category information</Text>
+                </LinearGradient>
+              </View>
+              
+              <View style={styles.popupContent}>
+                <Text style={styles.inputLabel}>Category Name *</Text>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Enter category name"
+                  value={editCategoryName}
+                  onChangeText={setEditCategoryName}
+                  placeholderTextColor="#999"
+                />
+                
+                <Text style={styles.inputLabel}>Description</Text>
+                <TextInput
+                  style={[styles.textInput, { height: 80, textAlignVertical: 'top' }]}
+                  placeholder="Enter category description (optional)"
+                  value={editCategoryDescription}
+                  onChangeText={setEditCategoryDescription}
+                  placeholderTextColor="#999"
+                  multiline
+                />
+                
+                <View style={styles.modalActions}>
+                  <TouchableOpacity 
+                    style={styles.cancelButton}
+                    onPress={() => setEditCategoryModalVisible(false)}
+                  >
+                    <Text style={styles.cancelButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={styles.addButton}
+                    onPress={handleEditCategory}
+                  >
+                    <Text style={styles.addButtonText}>Update Category</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Floating Action Button for Add Category */}
+        <TouchableOpacity
+          style={styles.fab}
+          onPress={() => setAddCategoryModalVisible(true)}
+          activeOpacity={0.8}
+        >
+          <LinearGradient
+            colors={['#667eea', '#764ba2']}
+            style={styles.fabGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          >
+            <MaterialIcons name="add" size={28} color="white" />
+          </LinearGradient>
+        </TouchableOpacity>
       </LinearGradient>
     </SafeAreaView>
   );
@@ -1183,11 +1514,19 @@ const styles = StyleSheet.create({
   signsSection: {
     paddingHorizontal: 20,
   },
+  section: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+    paddingHorizontal: 20,
+  },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 20,
+    paddingHorizontal: 20,
   },
   sectionTitle: {
     fontSize: 20,
@@ -1249,13 +1588,171 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.8)',
     fontWeight: '600',
   },
-  signArrow: {
+  signCardActions: {
     position: 'absolute',
-    bottom: 16,
-    right: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderRadius: 12,
-    padding: 4,
+    top: 12,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  categoryMenuButton: {
+    padding: 6,
+  },
+  signImage: {
+    width: 40,
+    height: 40,
+  },
+  modalTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.8)',
+    marginBottom: 20,
+  },
+  addSignButton: {
+    backgroundColor: 'rgba(102, 126, 234, 0.7)',
+    borderRadius: 8,
+    padding: 8,
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
+  },
+  addSignButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  emptySignsList: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptySignsText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#ccc',
+    marginBottom: 8,
+  },
+  emptySignsSubtext: {
+    fontSize: 14,
+    color: '#ccc',
+  },
+  popupOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  popupContainer: {
+    backgroundColor: 'white',
+    borderRadius: 20,
+    margin: 20,
+    maxHeight: '80%',
+    width: '90%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 15,
+  },
+  popupHeader: {
+    padding: 20,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+  },
+  popupContent: {
+    padding: 20,
+  },
+  imageUploadContainer: {
+    marginBottom: 20,
+  },
+  imageContainer: {
+    borderWidth: 2,
+    borderColor: '#667eea',
+    borderStyle: 'dashed',
+    borderRadius: 8,
+    padding: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  imagePreviewWrapper: {
+    position: 'relative',
+  },
+  imagePreview: {
+    width: 100,
+    height: 100,
+    borderRadius: 8,
+  },
+  editIconContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  uploadPlaceholder: {
+    borderWidth: 2,
+    borderColor: '#667eea',
+    borderStyle: 'dashed',
+    borderRadius: 8,
+    padding: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  uploadPlaceholderText: {
+    fontSize: 14,
+    color: '#667eea',
+    fontWeight: '600',
+  },
+  addCategoryButton: {
+    backgroundColor: 'rgba(102, 126, 234, 0.7)',
+    borderRadius: 8,
+    padding: 8,
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
+  },
+  addCategoryButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  categoryMenuContainer: {
+    backgroundColor: 'white',
+    borderRadius: 20,
+    padding: 20,
+    margin: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 15,
+  },
+  categoryMenuItem: {
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  categoryMenuItemText: {
+    fontSize: 16,
+    color: '#666',
+  },
+  categoryMenuItemDelete: {
+    borderBottomWidth: 0,
+  },
+  categoryMenuItemTextDelete: {
+    color: '#ff6b6b',
+    fontWeight: 'bold',
   },
 
   // Reports Section
@@ -1563,116 +2060,22 @@ const styles = StyleSheet.create({
     color: '#667eea',
     fontWeight: '600',
   },
-  signImage: {
-    width: 40,
-    height: 40,
-  },
-  modalTitleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  modalSubtitle: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.8)',
-    marginBottom: 20,
-  },
-  addSignButton: {
-    backgroundColor: 'rgba(102, 126, 234, 0.7)',
-    borderRadius: 8,
-    padding: 8,
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 6,
-  },
-  addSignButtonText: {
-    color: 'white',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  emptySignsList: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  emptySignsText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#ccc',
-    marginBottom: 8,
-  },
-  emptySignsSubtext: {
-    fontSize: 14,
-    color: '#ccc',
-  },
-  popupOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  popupContainer: {
-    backgroundColor: 'white',
-    borderRadius: 20,
-    margin: 20,
-    maxHeight: '80%',
-    width: '90%',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-    elevation: 15,
-  },
-  popupHeader: {
-    padding: 20,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-  },
-  popupContent: {
-    padding: 20,
-  },
-  imageUploadContainer: {
-    marginBottom: 20,
-  },
-  imageContainer: {
-    borderWidth: 2,
-    borderColor: '#667eea',
-    borderStyle: 'dashed',
-    borderRadius: 8,
-    padding: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  imagePreviewWrapper: {
-    position: 'relative',
-  },
-  imagePreview: {
-    width: 100,
-    height: 100,
-    borderRadius: 8,
-  },
-  editIconContainer: {
+  fab: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderRadius: 8,
+    bottom: 30,
+    right: 20,
+    zIndex: 1000,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  fabGradient: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  uploadPlaceholder: {
-    borderWidth: 2,
-    borderColor: '#667eea',
-    borderStyle: 'dashed',
-    borderRadius: 8,
-    padding: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  uploadPlaceholderText: {
-    fontSize: 14,
-    color: '#667eea',
-    fontWeight: '600',
   },
 });
